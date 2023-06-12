@@ -54,7 +54,7 @@ if __name__ == "__main__":
     si.set_global_job_kwargs(**job_kwargs)
 
     ####### CURATION ########
-    print("\n\CURATION")
+    print("\nCURATION")
     curation_notes = ""
 
     datetime_start_curation = datetime.now()
