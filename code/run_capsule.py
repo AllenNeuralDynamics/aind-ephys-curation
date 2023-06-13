@@ -103,13 +103,21 @@ if __name__ == "__main__":
         sorting_precurated = we.sorting
         sorting_precurated.set_property("default_qc", qc_quality)
         sorting_precurated.save(folder=results_folder / "sorting_precurated" / recording_name)
+        n_units = int(len(sorting_precurated.unit_ids))
+        n_passing = int(np.sum(qc_quality))
         print(f"\t{np.sum(qc_quality)}/{len(sorting_precurated.unit_ids)} passing default QC.\n")
-        curation_notes += f"{recording_name}:\n- {np.sum(qc_quality)}/{len(sorting_precurated.unit_ids)} passing default QC.\n"
-
+        curation_notes += f"{np.sum(qc_quality)}/{len(sorting_precurated.unit_ids)} passing default QC.\n"
         t_curation_end = time.perf_counter()
         elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
 
         # save params in output
+        curation_params["recording_name"] = recording_name
+        
+        curation_outputs = dict(
+            total_units=n_units,
+            passing_qc=n_passing,
+            failing_qc=n_units - n_passing
+        )
         curation_process = DataProcess(
                 name="Ephys curation",
                 version=VERSION, # either release or git commit
@@ -119,6 +127,7 @@ if __name__ == "__main__":
                 output_location=str(results_folder),
                 code_url=URL,
                 parameters=curation_params,
+                outputs=curation_outputs,
                 notes=curation_notes
             )
         with open(curation_output_process_json, "w") as f:
