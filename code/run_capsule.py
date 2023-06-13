@@ -57,8 +57,7 @@ if __name__ == "__main__":
     print("\nCURATION")
     curation_notes = ""
 
-    datetime_start_curation = datetime.now()
-    t_curation_start = time.perf_counter()
+    t_curation_start_all = time.perf_counter()
 
     # curation query
     isi_violations_ratio_thr = curation_params["isi_violations_ratio_threshold"]
@@ -85,6 +84,8 @@ if __name__ == "__main__":
 
     postprocessed_folders = [p for p in postprocessed_folder.iterdir() if "_sorting" not in p.name]
     for postprocessed_folder in postprocessed_folders:
+        datetime_start_curation = datetime.now()
+        t_curation_start = time.perf_counter()
         recording_name = postprocessed_folder.name
         curation_output_process_json = data_processes_folder / f"curation_{recording_name}.json"
 
@@ -105,21 +106,24 @@ if __name__ == "__main__":
         print(f"\t{np.sum(qc_quality)}/{len(sorting_precurated.unit_ids)} passing default QC.\n")
         curation_notes += f"{recording_name}:\n- {np.sum(qc_quality)}/{len(sorting_precurated.unit_ids)} passing default QC.\n"
 
-    t_curation_end = time.perf_counter()
-    elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
+        t_curation_end = time.perf_counter()
+        elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
 
-    # save params in output
-    curation_process = DataProcess(
-            name="Ephys curation",
-            version=VERSION, # either release or git commit
-            start_date_time=datetime_start_curation,
-            end_date_time=datetime_start_curation + timedelta(seconds=np.floor(elapsed_time_curation)),
-            input_location=str(data_folder),
-            output_location=str(results_folder),
-            code_url=URL,
-            parameters=curation_params,
-            notes=curation_notes
-        )
-    with open(curation_output_process_json, "w") as f:
-        f.write(curation_process.json(indent=3))
-    print(f"CURATION time: {elapsed_time_curation}s")
+        # save params in output
+        curation_process = DataProcess(
+                name="Ephys curation",
+                version=VERSION, # either release or git commit
+                start_date_time=datetime_start_curation,
+                end_date_time=datetime_start_curation + timedelta(seconds=np.floor(elapsed_time_curation)),
+                input_location=str(data_folder),
+                output_location=str(results_folder),
+                code_url=URL,
+                parameters=curation_params,
+                notes=curation_notes
+            )
+        with open(curation_output_process_json, "w") as f:
+            f.write(curation_process.json(indent=3))
+
+    t_curation_end_all = time.perf_counter()
+    elapsed_time_curation_all = np.round(t_curation_end_all - t_curation_start_all, 2)
+    print(f"CURATION time: {elapsed_time_curation_all}s")
