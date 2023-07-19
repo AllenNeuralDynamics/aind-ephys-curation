@@ -1,4 +1,4 @@
-# hash:sha256:d3b207bc17c257a2badf3a5c82237e18f58e7067a02d64e1031e6b4612e25706
+# hash:sha256:bd9b43f151e6a4b9df734813162896859a3e0af461a7f355465b217693ce0395
 FROM registry.codeocean.allenneuraldynamics.org/codeocean/jupyterlab:3.0.9-miniconda4.9.2-python3.8-ubuntu20.04
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -8,7 +8,7 @@ ARG GIT_ACCESS_TOKEN
 COPY git-askpass /
 
 RUN pip install -U --no-cache-dir \
-    aind-data-schema==0.13.50
+    aind-data-schema==0.13.66
 
 COPY postInstall /
 RUN /postInstall
