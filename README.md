@@ -38,5 +38,5 @@ curation_params = dict(
 The output of this capsule is the following:
 
 - `results/curated_{recording_name}` folder, containing the spike sorted data, saved by SpikeInterface, with the additional `default_QC` property
-- `results/data_process_postprocessing_{recording_name}.json` file, a JSON file containing a `DataProcess` object from the [aind-data-schema](https://aind-data-schema.readthedocs.io/en/stable/) package.
+- `results/data_process_curation_{recording_name}.json` file, a JSON file containing a `DataProcess` object from the [aind-data-schema](https://aind-data-schema.readthedocs.io/en/stable/) package.
 
