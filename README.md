@@ -1,5 +1,5 @@
 # Curation for AIND ephys pipeline
-## aind-capsule-ephys-curation
+## aind-ephys-curation
 
 
 ### Description
@@ -17,7 +17,7 @@ The recipe is based on the following quality metrics:
 
 ### Inputs
 
-The `data/` folder must include the output of the [aind-capsule-ephys-postprocessing](https://github.com/AllenNeuralDynamics/aind-capsule-ephys-postprocessing), including the `postprocessed_{recording_name}` folder.
+The `data/` folder must include the output of the [aind-ephys-postprocessing](https://github.com/AllenNeuralDynamics/aind-ephys-postprocessing), including the `postprocessed_{recording_name}` folder.
 
 ### Parameters
 

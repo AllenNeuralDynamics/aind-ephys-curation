@@ -1,5 +1,5 @@
 metadata_version: 1
-name: aind-capsule-ephys-curation
+name: aind-ephys-curation
 description: Basic structure of a capsule to be customized as needed.
 authors:
 - name: AIND
