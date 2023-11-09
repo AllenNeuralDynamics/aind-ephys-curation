@@ -115,7 +115,7 @@ if __name__ == "__main__":
         )
         curation_process = DataProcess(
                 name="Ephys curation",
-                version=VERSION, # either release or git commit
+                software_version=VERSION, # either release or git commit
                 start_date_time=datetime_start_curation,
                 end_date_time=datetime_start_curation + timedelta(seconds=np.floor(elapsed_time_curation)),
                 input_location=str(data_folder),
