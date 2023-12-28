@@ -3,7 +3,6 @@ warnings.filterwarnings("ignore")
 
 # GENERAL IMPORTS
 import os
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 import numpy as np
 from pathlib import Path
@@ -15,10 +14,8 @@ import spikeinterface as si
 import spikeinterface.qualitymetrics as sqm
 import spikeinterface.curation as sc
 
-from spikeinterface.core.core_tools import check_json
 
 # AIND
-from aind_data_schema import Processing
 from aind_data_schema.processing import DataProcess
 
 
@@ -60,7 +57,6 @@ if __name__ == "__main__":
     presence_ratio_thr = curation_params["presence_ratio_threshold"]
     amplitude_cutoff_thr = curation_params["amplitude_cutoff_threshold"]
 
-    
 
     # check if test
     if (data_folder / "postprocessing_pipeline_output_test").is_dir():
