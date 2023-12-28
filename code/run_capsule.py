@@ -16,7 +16,7 @@ import spikeinterface.curation as sc
 
 
 # AIND
-from aind_data_schema.processing import DataProcess
+from aind_data_schema.core.processing import DataProcess
 
 
 URL = "https://github.com/AllenNeuralDynamics/aind-capsule-ephys-curation"
@@ -122,7 +122,7 @@ if __name__ == "__main__":
                 notes=curation_notes
             )
         with open(curation_output_process_json, "w") as f:
-            f.write(curation_process.json(indent=3))
+            f.write(curation_process.model_dump_json(indent=3))
 
     t_curation_end_all = time.perf_counter()
     elapsed_time_curation_all = np.round(t_curation_end_all - t_curation_start_all, 2)
