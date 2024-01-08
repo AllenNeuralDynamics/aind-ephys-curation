@@ -1,14 +1,7 @@
-# hash:sha256:bd9b43f151e6a4b9df734813162896859a3e0af461a7f355465b217693ce0395
-FROM registry.codeocean.allenneuraldynamics.org/codeocean/jupyterlab:3.0.9-miniconda4.9.2-python3.8-ubuntu20.04
+FROM continuumio/miniconda3:23.9.0-0
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-ARG GIT_ASKPASS
-ARG GIT_ACCESS_TOKEN
-COPY git-askpass /
-
 RUN pip install -U --no-cache-dir \
-    aind-data-schema==0.15.25
-
-COPY postInstall /
-RUN /postInstall
+    aind-data-schema==0.22.1 \
+    spikeinterface[full]==0.99.1
