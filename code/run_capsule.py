@@ -24,7 +24,7 @@ URL = "https://github.com/AllenNeuralDynamics/aind-capsule-ephys-curation"
 VERSION = "0.1.0"
 
 data_folder = Path("../data/")
-scratc_folder = Path("../scratch")
+scratch_folder = Path("../scratch")
 results_folder = Path("../results/")
 
 # Define argument parser
