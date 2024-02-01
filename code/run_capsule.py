@@ -20,7 +20,7 @@ import spikeinterface.curation as sc
 # AIND
 from aind_data_schema.core.processing import DataProcess
 
-URL = "https://github.com/AllenNeuralDynamics/aind-capsule-ephys-curation"
+URL = "https://github.com/AllenNeuralDynamics/aind-ephys-curation"
 VERSION = "0.1.0"
 
 data_folder = Path("../data/")
