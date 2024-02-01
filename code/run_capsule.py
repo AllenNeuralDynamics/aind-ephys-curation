@@ -111,7 +111,6 @@ if __name__ == "__main__":
         t_curation_start = time.perf_counter()
         recording_name = ("_").join(postprocessed_folder.name.split("_")[1:])
         curation_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
-        curated_output_folder = results_folder / f"curated_{recording_name}"
 
         print(f"Curating recording: {recording_name}")
 
@@ -123,14 +122,13 @@ if __name__ == "__main__":
         curated_unit_ids = qm_curated.index.values
 
         # flag units as good/bad depending on QC selection
-        qc_quality = [True if unit in curated_unit_ids else False for unit in we.sorting.unit_ids]
-        sorting_precurated = we.sorting
-        sorting_precurated.set_property("default_qc", qc_quality)
-        sorting_precurated.save(folder=curated_output_folder)
-        n_units = int(len(sorting_precurated.unit_ids))
-        n_passing = int(np.sum(qc_quality))
-        print(f"\t{np.sum(qc_quality)}/{len(sorting_precurated.unit_ids)} passing default QC.\n")
-        curation_notes += f"{np.sum(qc_quality)}/{len(sorting_precurated.unit_ids)} passing default QC.\n"
+        default_qc = np.array([True if unit in curated_unit_ids else False for unit in we.sorting.unit_ids])
+        n_passing = int(np.sum(default_qc))
+        n_units = len(we.unit_ids)
+        print(f"\t{n_passing}/{n_units} passing default QC.\n")
+        curation_notes += f"{n_passing}/{n_units} passing default QC.\n"
+        # save flags to results folder
+        np.save(results_folder / f"qc_{recording_name}.npy", default_qc)
         t_curation_end = time.perf_counter()
         elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
 
