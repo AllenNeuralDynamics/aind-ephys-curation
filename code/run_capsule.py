@@ -4,8 +4,12 @@ warnings.filterwarnings("ignore")
 
 # GENERAL IMPORTS
 import os
+<<<<<<< HEAD
 import argparse
 import json
+=======
+
+>>>>>>> e75812d9d9dc19eb4d87d9cf845b156628ddca81
 import numpy as np
 from pathlib import Path
 import time
@@ -23,6 +27,19 @@ from aind_data_schema.core.processing import DataProcess
 URL = "https://github.com/AllenNeuralDynamics/aind-ephys-curation"
 VERSION = "0.1.0"
 
+<<<<<<< HEAD
+=======
+
+curation_params = dict(
+    isi_violations_ratio_threshold=0.5,
+    presence_ratio_threshold=0.8,
+    amplitude_cutoff_threshold=0.1,
+)
+
+
+job_kwargs = {"n_jobs": -1, "chunk_duration": "1s", "progress_bar": True}
+
+>>>>>>> e75812d9d9dc19eb4d87d9cf845b156628ddca81
 data_folder = Path("../data/")
 scratch_folder = Path("../scratch")
 results_folder = Path("../results/")
@@ -70,8 +87,11 @@ if __name__ == "__main__":
 
     data_process_prefix = "data_process_curation"
 
+<<<<<<< HEAD
     job_kwargs = processing_params["job_kwargs"]
     job_kwargs["n_jobs"] = N_JOBS
+=======
+>>>>>>> e75812d9d9dc19eb4d87d9cf845b156628ddca81
     si.set_global_job_kwargs(**job_kwargs)
 
     curation_params = processing_params["curation"]
