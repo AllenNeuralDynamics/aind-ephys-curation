@@ -1,4 +1,4 @@
-# hash:sha256:7eb072f89ce64e0682cfe731b62c62c79d807b1561df71f67de20f465ac4a97e
+# hash:sha256:5e4b88535b7b4c1c39cf698961f5e2eb7304d65ed4132e211233f54066d03435
 FROM registry.codeocean.allenneuraldynamics.org/codeocean/jupyterlab:3.6.1-miniconda4.12.0-python3.9-ubuntu20.04
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -12,4 +12,4 @@ COPY git-askpass /
 
 RUN pip install -U --no-cache-dir \
     aind-data-schema==0.19.1 \
-    spikeinterface[full]==0.99.1
+    spikeinterface[full]==0.100.0
