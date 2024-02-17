@@ -112,9 +112,15 @@ if __name__ == "__main__":
         recording_name = ("_").join(postprocessed_folder.name.split("_")[1:])
         curation_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
 
-        print(f"Curating recording: {recording_name}")
-
-        we = si.load_waveforms(postprocessed_folder, with_recording=False)
+        try:
+            we = si.load_waveforms(postprocessed_folder, with_recording=False)
+            print(f"Curating recording: {recording_name}")
+        except:
+            print(f"Spike sorting failed on {recording_name}. Skipping curation")
+            # create an mock result file (needed for pipeline)
+            mock_qc = np.array([], dtype=bool)
+            np.save(results_folder / f"qc_{recording_name}.npy", mock_qc)
+            continue
 
         # get quality metrics
         qm = we.load_extension("quality_metrics").get_data()
