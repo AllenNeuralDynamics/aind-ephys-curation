@@ -113,7 +113,7 @@ if __name__ == "__main__":
         curation_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
 
         try:
-            we = si.load_waveforms(postprocessed_folder, with_recording=False)
+            analyzer = si.load_sorting_analyzer(postprocessed_folder)
             print(f"Curating recording: {recording_name}")
         except:
             print(f"Spike sorting failed on {recording_name}. Skipping curation")
@@ -123,14 +123,14 @@ if __name__ == "__main__":
             continue
 
         # get quality metrics
-        qm = we.load_extension("quality_metrics").get_data()
+        qm = analyzer.get_extension("quality_metrics").get_data()
         qm_curated = qm.query(curation_query)
         curated_unit_ids = qm_curated.index.values
 
         # flag units as good/bad depending on QC selection
-        default_qc = np.array([True if unit in curated_unit_ids else False for unit in we.sorting.unit_ids])
+        default_qc = np.array([True if unit in curated_unit_ids else False for unit in analyzer.sorting.unit_ids])
         n_passing = int(np.sum(default_qc))
-        n_units = len(we.unit_ids)
+        n_units = len(analyzer.unit_ids)
         print(f"\t{n_passing}/{n_units} passing default QC.\n")
         curation_notes += f"{n_passing}/{n_units} passing default QC.\n"
         # save flags to results folder
