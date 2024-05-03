@@ -3,6 +3,6 @@ set -e
 
 git clone https://github.com/alejoe91/spikeinterface.git
 cd spikeinterface
-git checkout fix-get-templates-read-only
+git checkout 42e1f024aaa0c2af823f715a78d1d95a33807732
 pip install --no-cache-dir .[full,widgets]
 cd ..
