@@ -90,7 +90,7 @@ if __name__ == "__main__":
     # check if test
     if (data_folder / "postprocessing_pipeline_output_test").is_dir():
         print("\n*******************\n**** TEST MODE ****\n*******************\n")
-        postprocessed_folder = data_folder / "postprocessing_pipeline_output_test"
+        postprocessed_base_folder = data_folder / "postprocessing_pipeline_output_test"
 
         curation_query = (
             f"isi_violations_ratio < {isi_violations_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
@@ -98,18 +98,18 @@ if __name__ == "__main__":
         del curation_params["presence_ratio_threshold"]
     else:
         curation_query = f"isi_violations_ratio < {isi_violations_ratio_thr} and presence_ratio > {presence_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
-        postprocessed_folder = data_folder
+        postprocessed_base_folder = data_folder
 
     print(f"Curation query: {curation_query}")
     curation_notes += f"Curation query: {curation_query}\n"
 
     postprocessed_folders = [
-        p for p in postprocessed_folder.iterdir() if "postprocessed_" in p.name and "-sorting" not in p.name
+        p for p in postprocessed_base_folder.iterdir() if "postprocessed_" in p.name
     ]
     for postprocessed_folder in postprocessed_folders:
         datetime_start_curation = datetime.now()
         t_curation_start = time.perf_counter()
-        recording_name = ("_").join(postprocessed_folder.name.split("_")[1:])
+        recording_name = ("_").join(postprocessed_folder.stem.split("_")[1:])
         curation_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
 
         try:
