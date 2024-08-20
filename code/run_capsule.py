@@ -47,6 +47,11 @@ params_group.add_argument("--params-str", default=None, help="Optional json stri
 
 
 if __name__ == "__main__":
+    ####### CURATION ########
+    print("\nCURATION")
+    curation_notes = ""
+    t_curation_start_all = time.perf_counter()
+
     args = parser.parse_args()
 
     N_JOBS = args.static_n_jobs or args.n_jobs
@@ -76,19 +81,27 @@ if __name__ == "__main__":
 
     curation_params = processing_params["curation"]
 
-    ####### CURATION ########
-    print("\nCURATION")
-    curation_notes = ""
-
-    t_curation_start_all = time.perf_counter()
+    ecephys_sorted_folders = [
+        p
+        for p in data_folder.iterdir()
+        if p.is_dir() and "ecephys" in p.name or "behavior" in p.name and "sorted" in p.name
+    ]
 
     # curation query
     isi_violations_ratio_thr = curation_params["isi_violations_ratio_threshold"]
     presence_ratio_thr = curation_params["presence_ratio_threshold"]
     amplitude_cutoff_thr = curation_params["amplitude_cutoff_threshold"]
 
-    # check if test
-    if (data_folder / "postprocessing_pipeline_output_test").is_dir():
+    curation_query = f"isi_violations_ratio < {isi_violations_ratio_thr} and presence_ratio > {presence_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
+
+    pipeline_mode = True
+    if len(ecephys_sorted_folders) > 0:
+        # capsule mode
+        assert len(ecephys_sorted_folders) == 1, "Attach one sorted asset at a time"
+        ecephys_sorted_folder = ecephys_sorted_folders[0]
+        postprocessed_folder = ecephys_sorted_folder / "postprocessed"
+        pipeline_mode = False
+    elif (data_folder / "postprocessing_pipeline_output_test").is_dir():
         print("\n*******************\n**** TEST MODE ****\n*******************\n")
         postprocessed_base_folder = data_folder / "postprocessing_pipeline_output_test"
 
@@ -142,20 +155,21 @@ if __name__ == "__main__":
         curation_params["recording_name"] = recording_name
 
         curation_outputs = dict(total_units=n_units, passing_qc=n_passing, failing_qc=n_units - n_passing)
-        curation_process = DataProcess(
-            name="Ephys curation",
-            software_version=VERSION,  # either release or git commit
-            start_date_time=datetime_start_curation,
-            end_date_time=datetime_start_curation + timedelta(seconds=np.floor(elapsed_time_curation)),
-            input_location=str(data_folder),
-            output_location=str(results_folder),
-            code_url=URL,
-            parameters=curation_params,
-            outputs=curation_outputs,
-            notes=curation_notes,
-        )
-        with open(curation_output_process_json, "w") as f:
-            f.write(curation_process.model_dump_json(indent=3))
+        if pipeline_mode:
+            curation_process = DataProcess(
+                name="Ephys curation",
+                software_version=VERSION,  # either release or git commit
+                start_date_time=datetime_start_curation,
+                end_date_time=datetime_start_curation + timedelta(seconds=np.floor(elapsed_time_curation)),
+                input_location=str(data_folder),
+                output_location=str(results_folder),
+                code_url=URL,
+                parameters=curation_params,
+                outputs=curation_outputs,
+                notes=curation_notes,
+            )
+            with open(curation_output_process_json, "w") as f:
+                f.write(curation_process.model_dump_json(indent=3))
 
     t_curation_end_all = time.perf_counter()
     elapsed_time_curation_all = np.round(t_curation_end_all - t_curation_start_all, 2)
