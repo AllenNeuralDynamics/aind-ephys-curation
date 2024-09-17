@@ -103,34 +103,30 @@ if __name__ == "__main__":
         pipeline_mode = False
     elif (data_folder / "postprocessing_pipeline_output_test").is_dir():
         print("\n*******************\n**** TEST MODE ****\n*******************\n")
-        postprocessed_folder = data_folder / "postprocessing_pipeline_output_test"
+        postprocessed_base_folder = data_folder / "postprocessing_pipeline_output_test"
+
         curation_query = (
             f"isi_violations_ratio < {isi_violations_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
         )
         del curation_params["presence_ratio_threshold"]
     else:
-        postprocessed_folder = data_folder
+        curation_query = f"isi_violations_ratio < {isi_violations_ratio_thr} and presence_ratio > {presence_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
+        postprocessed_base_folder = data_folder
 
     print(f"Curation query: {curation_query}")
     curation_notes += f"Curation query: {curation_query}\n"
 
-    if pipeline_mode:
-        postprocessed_folders = [
-            p for p in postprocessed_folder.iterdir() if "postprocessed_" in p.name and "-sorting" not in p.name
-        ]
-    else:
-        postprocessed_folders = [
-            p for p in postprocessed_folder.iterdir() if p.is_dir() and "-sorting" not in p.name
-        ]
-
+    postprocessed_folders = [
+        p for p in postprocessed_base_folder.iterdir() if "postprocessed_" in p.name
+    ]
     for postprocessed_folder in postprocessed_folders:
         datetime_start_curation = datetime.now()
         t_curation_start = time.perf_counter()
-        recording_name = ("_").join(postprocessed_folder.name.split("_")[1:])
+        recording_name = ("_").join(postprocessed_folder.stem.split("_")[1:])
         curation_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
 
         try:
-            we = si.load_waveforms(postprocessed_folder, with_recording=False)
+            analyzer = si.load_sorting_analyzer(postprocessed_folder)
             print(f"Curating recording: {recording_name}")
         except:
             print(f"Spike sorting failed on {recording_name}. Skipping curation")
@@ -140,14 +136,14 @@ if __name__ == "__main__":
             continue
 
         # get quality metrics
-        qm = we.load_extension("quality_metrics").get_data()
+        qm = analyzer.get_extension("quality_metrics").get_data()
         qm_curated = qm.query(curation_query)
         curated_unit_ids = qm_curated.index.values
 
         # flag units as good/bad depending on QC selection
-        default_qc = np.array([True if unit in curated_unit_ids else False for unit in we.sorting.unit_ids])
+        default_qc = np.array([True if unit in curated_unit_ids else False for unit in analyzer.sorting.unit_ids])
         n_passing = int(np.sum(default_qc))
-        n_units = len(we.unit_ids)
+        n_units = len(analyzer.unit_ids)
         print(f"\t{n_passing}/{n_units} passing default QC.\n")
         curation_notes += f"{n_passing}/{n_units} passing default QC.\n"
         # save flags to results folder
