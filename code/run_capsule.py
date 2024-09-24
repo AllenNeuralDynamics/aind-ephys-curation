@@ -116,17 +116,27 @@ if __name__ == "__main__":
     print(f"Curation query: {curation_query}")
     curation_notes += f"Curation query: {curation_query}\n"
 
-    postprocessed_folders = [
-        p for p in postprocessed_base_folder.iterdir() if "postprocessed_" in p.name
-    ]
+    if pipeline_mode:
+        postprocessed_folders = [
+            p for p in postprocessed_base_folder.iterdir() if "postprocessed_" in p.name
+        ]
+    else:
+        postprocessed_folders = [
+            p for p in postprocessed_base_folder.iterdir() if "postprocessed-sorting" not in p.name and p.is_dir()
+        ]
     for postprocessed_folder in postprocessed_folders:
         datetime_start_curation = datetime.now()
         t_curation_start = time.perf_counter()
-        recording_name = ("_").join(postprocessed_folder.stem.split("_")[1:])
+        if pipeline_mode:
+            recording_name = ("_").join(postprocessed_folder.name.split("_")[1:])
+        else:
+            recording_name = postprocessed_folder.name
+        if recording_name.endswith(".zarr"):
+            recording_name = recording_name[:recording_name.find(".zarr")]
         curation_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
 
         try:
-            analyzer = si.load_sorting_analyzer(postprocessed_folder)
+            analyzer = si.load_sorting_analyzer_or_waveforms(postprocessed_folder)
             print(f"Curating recording: {recording_name}")
         except:
             print(f"Spike sorting failed on {recording_name}. Skipping curation")
