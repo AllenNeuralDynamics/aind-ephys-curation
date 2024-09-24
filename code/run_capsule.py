@@ -99,7 +99,7 @@ if __name__ == "__main__":
         # capsule mode
         assert len(ecephys_sorted_folders) == 1, "Attach one sorted asset at a time"
         ecephys_sorted_folder = ecephys_sorted_folders[0]
-        postprocessed_folder = ecephys_sorted_folder / "postprocessed"
+        postprocessed_base_folder = ecephys_sorted_folder / "postprocessed"
         pipeline_mode = False
     elif (data_folder / "postprocessing_pipeline_output_test").is_dir():
         print("\n*******************\n**** TEST MODE ****\n*******************\n")
