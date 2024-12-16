@@ -124,39 +124,45 @@ if __name__ == "__main__":
         # capsule mode
         assert len(ecephys_sorted_folders) == 1, "Attach one sorted asset at a time"
         ecephys_sorted_folder = ecephys_sorted_folders[0]
-        postprocessed_folder = ecephys_sorted_folder / "postprocessed"
+        postprocessed_base_folder = ecephys_sorted_folder / "postprocessed"
         pipeline_mode = False
     elif (data_folder / "postprocessing_pipeline_output_test").is_dir():
-        logging.info("\n*******************\n**** TEST MODE ****\n*******************\n")
-        postprocessed_folder = data_folder / "postprocessing_pipeline_output_test"
+        print("\n*******************\n**** TEST MODE ****\n*******************\n")
+        postprocessed_base_folder = data_folder / "postprocessing_pipeline_output_test"
+
         curation_query = (
             f"isi_violations_ratio < {isi_violations_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
         )
         del curation_params["presence_ratio_threshold"]
     else:
-        postprocessed_folder = data_folder
+        curation_query = f"isi_violations_ratio < {isi_violations_ratio_thr} and presence_ratio > {presence_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
+        postprocessed_base_folder = data_folder
 
     logging.info(f"Curation query: {curation_query}")
     curation_notes += f"Curation query: {curation_query}\n"
 
     if pipeline_mode:
         postprocessed_folders = [
-            p for p in postprocessed_folder.iterdir() if "postprocessed_" in p.name and "-sorting" not in p.name
+            p for p in postprocessed_base_folder.iterdir() if "postprocessed_" in p.name
         ]
     else:
         postprocessed_folders = [
-            p for p in postprocessed_folder.iterdir() if p.is_dir() and "-sorting" not in p.name
+            p for p in postprocessed_base_folder.iterdir() if "postprocessed-sorting" not in p.name and p.is_dir()
         ]
-
     for postprocessed_folder in postprocessed_folders:
         datetime_start_curation = datetime.now()
         t_curation_start = time.perf_counter()
-        recording_name = ("_").join(postprocessed_folder.name.split("_")[1:])
+        if pipeline_mode:
+            recording_name = ("_").join(postprocessed_folder.name.split("_")[1:])
+        else:
+            recording_name = postprocessed_folder.name
+        if recording_name.endswith(".zarr"):
+            recording_name = recording_name[:recording_name.find(".zarr")]
         curation_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
 
         try:
-            we = si.load_waveforms(postprocessed_folder, with_recording=False)
-            logging.info(f"Curating recording: {recording_name}")
+            analyzer = si.load_sorting_analyzer_or_waveforms(postprocessed_folder)
+            print(f"Curating recording: {recording_name}")
         except:
             logging.info(f"Spike sorting failed on {recording_name}. Skipping curation")
             # create an mock result file (needed for pipeline)
@@ -165,15 +171,20 @@ if __name__ == "__main__":
             continue
 
         # get quality metrics
-        qm = we.load_extension("quality_metrics").get_data()
+        qm = analyzer.get_extension("quality_metrics").get_data()
         qm_curated = qm.query(curation_query)
         curated_unit_ids = qm_curated.index.values
 
         # flag units as good/bad depending on QC selection
-        default_qc = np.array([True if unit in curated_unit_ids else False for unit in we.sorting.unit_ids])
+        default_qc = np.array([True if unit in curated_unit_ids else False for unit in analyzer.sorting.unit_ids])
         n_passing = int(np.sum(default_qc))
+<<<<<<< HEAD
         n_units = len(we.unit_ids)
         logging.info(f"\t{n_passing}/{n_units} passing default QC.\n")
+=======
+        n_units = len(analyzer.unit_ids)
+        print(f"\t{n_passing}/{n_units} passing default QC.\n")
+>>>>>>> a8d31a85ceeedb903f19c5b8476cdaf8a8b750e6
         curation_notes += f"{n_passing}/{n_units} passing default QC.\n"
         # save flags to results folder
         np.save(results_folder / f"qc_{recording_name}.npy", default_qc)
