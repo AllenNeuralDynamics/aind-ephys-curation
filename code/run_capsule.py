@@ -127,7 +127,7 @@ if __name__ == "__main__":
         postprocessed_base_folder = ecephys_sorted_folder / "postprocessed"
         pipeline_mode = False
     elif (data_folder / "postprocessing_pipeline_output_test").is_dir():
-        print("\n*******************\n**** TEST MODE ****\n*******************\n")
+        logging.info("\n*******************\n**** TEST MODE ****\n*******************\n")
         postprocessed_base_folder = data_folder / "postprocessing_pipeline_output_test"
 
         curation_query = (
@@ -162,7 +162,7 @@ if __name__ == "__main__":
 
         try:
             analyzer = si.load_sorting_analyzer_or_waveforms(postprocessed_folder)
-            print(f"Curating recording: {recording_name}")
+            logging.info(f"Curating recording: {recording_name}")
         except:
             logging.info(f"Spike sorting failed on {recording_name}. Skipping curation")
             # create an mock result file (needed for pipeline)
@@ -178,13 +178,8 @@ if __name__ == "__main__":
         # flag units as good/bad depending on QC selection
         default_qc = np.array([True if unit in curated_unit_ids else False for unit in analyzer.sorting.unit_ids])
         n_passing = int(np.sum(default_qc))
-<<<<<<< HEAD
-        n_units = len(we.unit_ids)
-        logging.info(f"\t{n_passing}/{n_units} passing default QC.\n")
-=======
         n_units = len(analyzer.unit_ids)
-        print(f"\t{n_passing}/{n_units} passing default QC.\n")
->>>>>>> a8d31a85ceeedb903f19c5b8476cdaf8a8b750e6
+        logging.info(f"\t{n_passing}/{n_units} passing default QC.\n")
         curation_notes += f"{n_passing}/{n_units} passing default QC.\n"
         # save flags to results folder
         np.save(results_folder / f"qc_{recording_name}.npy", default_qc)
