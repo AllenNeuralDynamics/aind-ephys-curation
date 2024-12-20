@@ -53,7 +53,6 @@ params_group.add_argument("--params-str", default=None, help="Optional json stri
 
 if __name__ == "__main__":
     ####### CURATION ########
-    logging.info("\nCURATION")
     curation_notes = ""
     t_curation_start_all = time.perf_counter()
 
@@ -111,6 +110,10 @@ if __name__ == "__main__":
             mouse_id=subject_id,
             session_name=session_name,
         )
+    else:
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    logging.info("\nCURATION")
 
     # curation query
     isi_violations_ratio_thr = curation_params["isi_violations_ratio_threshold"]
@@ -163,7 +166,7 @@ if __name__ == "__main__":
         try:
             analyzer = si.load_sorting_analyzer_or_waveforms(postprocessed_folder)
             logging.info(f"Curating recording: {recording_name}")
-        except:
+        except Exception as e:
             logging.info(f"Spike sorting failed on {recording_name}. Skipping curation")
             # create an mock result file (needed for pipeline)
             mock_qc = np.array([], dtype=bool)
