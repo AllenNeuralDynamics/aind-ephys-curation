@@ -4,6 +4,7 @@ warnings.filterwarnings("ignore")
 
 # GENERAL IMPORTS
 import os
+import sys
 import argparse
 import json
 import numpy as np
@@ -111,7 +112,7 @@ if __name__ == "__main__":
             session_name=session_name,
         )
     else:
-        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
 
     logging.info("\nCURATION")
 
