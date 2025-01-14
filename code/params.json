@@ -1,0 +1,11 @@
+{
+    "job_kwargs": {
+        "chunk_duration": "1s",
+        "progress_bar": false
+    },
+    "curation": {
+        "isi_violations_ratio_threshold": 0.5,
+        "presence_ratio_threshold": 0.8,
+        "amplitude_cutoff_threshold": 0.1
+    }
+}

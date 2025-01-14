@@ -1,5 +1,17 @@
 metadata_version: 1
-name: aind-ephys-curation
-description: Basic structure of a capsule to be customized as needed.
+name: Curate Ecephys
+description: |-
+  This capsule is designed to curate spike sorted data for the AIND pipeline.
+
+  It uses a quality metrics based recipe to flag units as passing or failing default quality control (QC).
+
+  The recipe is based on the following quality metrics:
+
+   -isi violation ratio < 0.5
+  - presence ratio > 0.8
+  - amplitude cutoff < 0.1
+tags:
+- ecephys
 authors:
 - name: AIND
+- name: Alessio Buccino
