@@ -4,21 +4,29 @@ warnings.filterwarnings("ignore")
 
 # GENERAL IMPORTS
 import os
+import sys
 import argparse
 import json
 import numpy as np
 from pathlib import Path
 import time
+import logging
 from datetime import datetime, timedelta
+import pandas as pd
 
 # SPIKEINTERFACE
 import spikeinterface as si
 import spikeinterface.qualitymetrics as sqm
-import spikeinterface.curation as sc
-
+import spikeinterface.curation as scur
 
 # AIND
 from aind_data_schema.core.processing import DataProcess
+
+try:
+    from aind_log_utils import log
+    HAVE_AIND_LOG_UTILS = True
+except ImportError:
+    HAVE_AIND_LOG_UTILS = False
 
 URL = "https://github.com/AllenNeuralDynamics/aind-ephys-curation"
 VERSION = "1.0"
@@ -48,7 +56,6 @@ params_group.add_argument("--params-str", default=None, help="Optional json stri
 
 if __name__ == "__main__":
     ####### CURATION ########
-    print("\nCURATION")
     curation_notes = ""
     t_curation_start_all = time.perf_counter()
 
@@ -64,7 +71,7 @@ if __name__ == "__main__":
     N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
 
     if PARAMS_FILE is not None:
-        print(f"\nUsing custom parameter file: {PARAMS_FILE}")
+        logging.info(f"\nUsing custom parameter file: {PARAMS_FILE}")
         with open(PARAMS_FILE, "r") as f:
             processing_params = json.load(f)
     elif PARAMS_STR is not None:
@@ -87,6 +94,30 @@ if __name__ == "__main__":
         if p.is_dir() and "ecephys" in p.name or "behavior" in p.name and "sorted" in p.name
     ]
 
+    # look for subject and data_description JSON files
+    subject_id = "undefined"
+    session_name = "undefined"
+    for f in data_folder.iterdir():
+        # the file name is {recording_name}_subject.json
+        if "subject.json" in f.name:
+            with open(f, "r") as file:
+                subject_id = json.load(file)["subject_id"]
+        # the file name is {recording_name}_data_description.json
+        if "data_description.json" in f.name:
+            with open(f, "r") as file:
+                session_name = json.load(file)["name"]
+
+    if HAVE_AIND_LOG_UTILS:
+        log.setup_logging(
+            "Curate Ecephys",
+            subject_id=subject_id,
+            asset_name=session_name,
+        )
+    else:
+        logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
+
+    logging.info("\nCURATION")
+
     # curation query
     isi_violations_ratio_thr = curation_params["isi_violations_ratio_threshold"]
     presence_ratio_thr = curation_params["presence_ratio_threshold"]
@@ -102,7 +133,7 @@ if __name__ == "__main__":
         postprocessed_base_folder = ecephys_sorted_folder / "postprocessed"
         pipeline_mode = False
     elif (data_folder / "postprocessing_pipeline_output_test").is_dir():
-        print("\n*******************\n**** TEST MODE ****\n*******************\n")
+        logging.info("\n*******************\n**** TEST MODE ****\n*******************\n")
         postprocessed_base_folder = data_folder / "postprocessing_pipeline_output_test"
 
         curation_query = (
@@ -113,7 +144,7 @@ if __name__ == "__main__":
         curation_query = f"isi_violations_ratio < {isi_violations_ratio_thr} and presence_ratio > {presence_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
         postprocessed_base_folder = data_folder
 
-    print(f"Curation query: {curation_query}")
+    logging.info(f"Curation query: {curation_query}")
     curation_notes += f"Curation query: {curation_query}\n"
 
     if pipeline_mode:
@@ -137,15 +168,17 @@ if __name__ == "__main__":
 
         try:
             analyzer = si.load_sorting_analyzer_or_waveforms(postprocessed_folder)
-            print(f"Curating recording: {recording_name}")
-        except:
-            print(f"Spike sorting failed on {recording_name}. Skipping curation")
+            logging.info(f"Curating recording: {recording_name}")
+        except Exception as e:
+            logging.info(f"Spike sorting failed on {recording_name}. Skipping curation")
             # create an mock result file (needed for pipeline)
             mock_qc = np.array([], dtype=bool)
             np.save(results_folder / f"qc_{recording_name}.npy", mock_qc)
+            mock_df = pd.DataFrame()
+            mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
             continue
 
-        # get quality metrics
+        # pass/fail default QC
         qm = analyzer.get_extension("quality_metrics").get_data()
         qm_curated = qm.query(curation_query)
         curated_unit_ids = qm_curated.index.values
@@ -154,10 +187,47 @@ if __name__ == "__main__":
         default_qc = np.array([True if unit in curated_unit_ids else False for unit in analyzer.sorting.unit_ids])
         n_passing = int(np.sum(default_qc))
         n_units = len(analyzer.unit_ids)
-        print(f"\t{n_passing}/{n_units} passing default QC.\n")
-        curation_notes += f"{n_passing}/{n_units} passing default QC.\n"
+        logging.info(f"\tPassing default QC: {n_passing} / {n_units}")
+        curation_notes += f"Passing default QC: {n_passing}/{n_units}"
         # save flags to results folder
         np.save(results_folder / f"qc_{recording_name}.npy", default_qc)
+
+        # estimate unit labels (noise/mua/sua)
+
+        # 1. apply the noise/neural classification and remove noise
+        noise_neuron_labels = scur.auto_label_units(
+            sorting_analyzer=analyzer,
+            repo_id="AnoushkaJain3/noise_neural_classifier",
+            trust_model=True,
+        )
+        noise_units = noise_neuron_labels[noise_neuron_labels['prediction'] == 'noise']
+        analyzer_neural = analyzer.remove_units(noise_units.index)
+
+        # 2. apply the sua/mua classification and aggregate results
+        sua_mua_labels = scur.auto_label_units(
+            sorting_analyzer = analyzer_neural,
+            repo_id = "AnoushkaJain3/sua_mua_classifier",
+            trust_model=True,
+        )
+
+        all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
+        prediction = all_labels["prediction"]
+
+        n_sua = int(np.sum(prediction == "sua"))
+        n_mua = int(np.sum(prediction == "mua"))
+        n_noise = int(np.sum(prediction == "noise"))
+        n_units = int(len(analyzer.unit_ids))
+
+        logging.info(f"\tNoise: {n_noise} / {n_units}")
+        logging.info(f"\tSUA: {n_sua} / {n_units}")
+        logging.info(f"\tMUA: {n_mua} / {n_units}")
+
+        curation_notes += f"Noise: {n_noise} / {n_units}\n"
+        curation_notes += f"SUA: {n_sua} / {n_units}\n"
+        curation_notes += f"MUA: {n_mua} / {n_units}\n"
+
+        all_labels.to_csv(results_folder / f"unit_classifier_{recording_name}.csv", index=False)
+        
         t_curation_end = time.perf_counter()
         elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
 
@@ -183,4 +253,4 @@ if __name__ == "__main__":
 
     t_curation_end_all = time.perf_counter()
     elapsed_time_curation_all = np.round(t_curation_end_all - t_curation_start_all, 2)
-    print(f"CURATION time: {elapsed_time_curation_all}s")
+    logging.info(f"CURATION time: {elapsed_time_curation_all}s")
