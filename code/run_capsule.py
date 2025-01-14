@@ -12,10 +12,12 @@ from pathlib import Path
 import time
 import logging
 from datetime import datetime, timedelta
+import pandas as pd
 
 # SPIKEINTERFACE
 import spikeinterface as si
 import spikeinterface.qualitymetrics as sqm
+import spikeinterface.curation as scur
 
 # AIND
 from aind_data_schema.core.processing import DataProcess
@@ -172,9 +174,11 @@ if __name__ == "__main__":
             # create an mock result file (needed for pipeline)
             mock_qc = np.array([], dtype=bool)
             np.save(results_folder / f"qc_{recording_name}.npy", mock_qc)
+            mock_df = pd.DataFrame()
+            mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
             continue
 
-        # get quality metrics
+        # pass/fail default QC
         qm = analyzer.get_extension("quality_metrics").get_data()
         qm_curated = qm.query(curation_query)
         curated_unit_ids = qm_curated.index.values
@@ -183,10 +187,47 @@ if __name__ == "__main__":
         default_qc = np.array([True if unit in curated_unit_ids else False for unit in analyzer.sorting.unit_ids])
         n_passing = int(np.sum(default_qc))
         n_units = len(analyzer.unit_ids)
-        logging.info(f"\t{n_passing}/{n_units} passing default QC.\n")
-        curation_notes += f"{n_passing}/{n_units} passing default QC.\n"
+        logging.info(f"\tPassing default QC: {n_passing} / {n_units}")
+        curation_notes += f"Passing default QC: {n_passing}/{n_units}"
         # save flags to results folder
         np.save(results_folder / f"qc_{recording_name}.npy", default_qc)
+
+        # estimate unit labels (noise/mua/sua)
+
+        # 1. apply the noise/neural classification and remove noise
+        noise_neuron_labels = scur.auto_label_units(
+            sorting_analyzer=analyzer,
+            repo_id="AnoushkaJain3/noise_neural_classifier",
+            trust_model=True,
+        )
+        noise_units = noise_neuron_labels[noise_neuron_labels['prediction'] == 'noise']
+        analyzer_neural = analyzer.remove_units(noise_units.index)
+
+        # 2. apply the sua/mua classification and aggregate results
+        sua_mua_labels = scur.auto_label_units(
+            sorting_analyzer = analyzer_neural,
+            repo_id = "AnoushkaJain3/sua_mua_classifier",
+            trust_model=True,
+        )
+
+        all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
+        prediction = all_labels["prediction"]
+
+        n_sua = int(np.sum(prediction == "sua"))
+        n_mua = int(np.sum(prediction == "mua"))
+        n_noise = int(np.sum(prediction == "noise"))
+        n_units = int(len(analyzer.unit_ids))
+
+        logging.info(f"\tNoise: {n_noise} / {n_units}")
+        logging.info(f"\tSUA: {n_sua} / {n_units}")
+        logging.info(f"\tMUA: {n_mua} / {n_units}")
+
+        curation_notes += f"Noise: {n_noise} / {n_units}\n"
+        curation_notes += f"SUA: {n_sua} / {n_units}\n"
+        curation_notes += f"MUA: {n_mua} / {n_units}\n"
+
+        all_labels.to_csv(results_folder / f"unit_classifier_{recording_name}.csv", index=False)
+        
         t_curation_end = time.perf_counter()
         elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
 
