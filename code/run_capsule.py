@@ -197,7 +197,7 @@ if __name__ == "__main__":
         # 1. apply the noise/neural classification and remove noise
         noise_neuron_labels = scur.auto_label_units(
             sorting_analyzer=analyzer,
-            repo_id="AnoushkaJain3/noise_neural_classifier",
+            repo_id="SpikeInterface/UnitRefine_noise_neural_classifier",
             trust_model=True,
         )
         noise_units = noise_neuron_labels[noise_neuron_labels['prediction'] == 'noise']
@@ -205,8 +205,8 @@ if __name__ == "__main__":
 
         # 2. apply the sua/mua classification and aggregate results
         sua_mua_labels = scur.auto_label_units(
-            sorting_analyzer = analyzer_neural,
-            repo_id = "AnoushkaJain3/sua_mua_classifier",
+            sorting_analyzer=analyzer_neural,
+            repo_id="SpikeInterface/UnitRefine_sua_mua_classifier",
             trust_model=True,
         )
 
