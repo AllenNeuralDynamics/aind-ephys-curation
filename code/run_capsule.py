@@ -29,7 +29,7 @@ except ImportError:
     HAVE_AIND_LOG_UTILS = False
 
 URL = "https://github.com/AllenNeuralDynamics/aind-ephys-curation"
-VERSION = "1.0"
+VERSION = "2.0"
 
 data_folder = Path("../data/")
 scratch_folder = Path("../scratch")
@@ -167,7 +167,7 @@ if __name__ == "__main__":
         curation_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
 
         try:
-            analyzer = si.load_sorting_analyzer_or_waveforms(postprocessed_folder)
+            analyzer = si.load(postprocessed_folder)
             logging.info(f"Curating recording: {recording_name}")
         except Exception as e:
             logging.info(f"Spike sorting failed on {recording_name}. Skipping curation")
@@ -211,7 +211,8 @@ if __name__ == "__main__":
         )
 
         all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
-        prediction = all_labels["prediction"]
+        all_labels = all_labels.rename(columns={"prediction": "decoder_label", "probability": "decoder_probability"})
+        prediction = all_labels["decoder_label"]
 
         n_sua = int(np.sum(prediction == "sua"))
         n_mua = int(np.sum(prediction == "mua"))
