@@ -194,6 +194,10 @@ if __name__ == "__main__":
 
         # estimate unit labels (noise/mua/sua)
 
+        # patch for wrong template metrics dtypes
+        template_metrics_ext = analyzer.get_extension("template_metrics")
+        template_metrics_ext.data["metrics"] = template_metrics_ext.data["metrics"].replace("<NA>","NaN").astype("float32")
+
         # 1. apply the noise/neural classification and remove noise
         noise_neuron_labels = scur.auto_label_units(
             sorting_analyzer=analyzer,
