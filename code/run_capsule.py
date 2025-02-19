@@ -206,16 +206,19 @@ if __name__ == "__main__":
             trust_model=True,
         )
         noise_units = noise_neuron_labels[noise_neuron_labels['prediction'] == 'noise']
-        analyzer_neural = analyzer.remove_units(noise_units.index)
 
         # 2. apply the sua/mua classification and aggregate results
-        sua_mua_labels = scur.auto_label_units(
-            sorting_analyzer=analyzer_neural,
-            repo_id="SpikeInterface/UnitRefine_sua_mua_classifier",
-            trust_model=True,
-        )
+        if len(analyzer.unit_ids) > len(noise_units):
+            analyzer_neural = analyzer.remove_units(noise_units.index)
+            sua_mua_labels = scur.auto_label_units(
+                sorting_analyzer=analyzer_neural,
+                repo_id="SpikeInterface/UnitRefine_sua_mua_classifier",
+                trust_model=True,
+            )
+            all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
+        else:
+            all_labels = noise_units
 
-        all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
         all_labels = all_labels.rename(columns={"prediction": "decoder_label", "probability": "decoder_probability"})
         prediction = all_labels["decoder_label"]
 
