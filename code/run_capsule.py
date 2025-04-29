@@ -118,13 +118,6 @@ if __name__ == "__main__":
 
     logging.info("\nCURATION")
 
-    # curation query
-    isi_violations_ratio_thr = curation_params["isi_violations_ratio_threshold"]
-    presence_ratio_thr = curation_params["presence_ratio_threshold"]
-    amplitude_cutoff_thr = curation_params["amplitude_cutoff_threshold"]
-
-    curation_query = f"isi_violations_ratio < {isi_violations_ratio_thr} and presence_ratio > {presence_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
-
     pipeline_mode = True
     if len(ecephys_sorted_folders) > 0:
         # capsule mode
@@ -135,17 +128,8 @@ if __name__ == "__main__":
     elif (data_folder / "postprocessing_pipeline_output_test").is_dir():
         logging.info("\n*******************\n**** TEST MODE ****\n*******************\n")
         postprocessed_base_folder = data_folder / "postprocessing_pipeline_output_test"
-
-        curation_query = (
-            f"isi_violations_ratio < {isi_violations_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
-        )
-        del curation_params["presence_ratio_threshold"]
     else:
-        curation_query = f"isi_violations_ratio < {isi_violations_ratio_thr} and presence_ratio > {presence_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
         postprocessed_base_folder = data_folder
-
-    logging.info(f"Curation query: {curation_query}")
-    curation_notes += f"Curation query: {curation_query}\n"
 
     if pipeline_mode:
         postprocessed_folders = [
@@ -179,6 +163,10 @@ if __name__ == "__main__":
             continue
 
         # pass/fail default QC
+        curation_query = curation_params["query"]
+        logging.info(f"Curation query: {curation_query}")
+        curation_notes += f"Curation query: {curation_query}\n"
+
         qm = analyzer.get_extension("quality_metrics").get_data()
         qm_curated = qm.query(curation_query)
         curated_unit_ids = qm_curated.index.values
@@ -200,19 +188,27 @@ if __name__ == "__main__":
         template_metrics_ext.data["metrics"] = template_metrics_ext.data["metrics"].replace("<NA>","NaN").astype("float32")
 
         # 1. apply the noise/neural classification and remove noise
+        noise_neural_classifier = curation_params.get(
+            "noise_neural_classifier",
+            "SpikeInterface/UnitRefine_noise_neural_classifier"
+        )
         noise_neuron_labels = scur.auto_label_units(
             sorting_analyzer=analyzer,
-            repo_id="SpikeInterface/UnitRefine_noise_neural_classifier",
+            repo_id=noise_neural_classifier,
             trust_model=True,
         )
         noise_units = noise_neuron_labels[noise_neuron_labels['prediction'] == 'noise']
 
         # 2. apply the sua/mua classification and aggregate results
         if len(analyzer.unit_ids) > len(noise_units):
+            sua_mua_classifier = curation_params.get(
+                "sua_mua_classifier",
+                "SpikeInterface/UnitRefine_sua_mua_classifier"
+            )
             analyzer_neural = analyzer.remove_units(noise_units.index)
             sua_mua_labels = scur.auto_label_units(
                 sorting_analyzer=analyzer_neural,
-                repo_id="SpikeInterface/UnitRefine_sua_mua_classifier",
+                repo_id=sua_mua_classifier,
                 trust_model=True,
             )
             all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
