@@ -71,7 +71,6 @@ if __name__ == "__main__":
     N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
 
     if PARAMS_FILE is not None:
-        logging.info(f"\nUsing custom parameter file: {PARAMS_FILE}")
         with open(PARAMS_FILE, "r") as f:
             processing_params = json.load(f)
     elif PARAMS_STR is not None:
