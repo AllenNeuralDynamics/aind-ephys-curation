@@ -191,6 +191,7 @@ if __name__ == "__main__":
             "noise_neural_classifier",
             "SpikeInterface/UnitRefine_noise_neural_classifier"
         )
+        logging.info(f"Applying noise-neural classifier from {noise_neural_classifier}")
         noise_neuron_labels = scur.auto_label_units(
             sorting_analyzer=analyzer,
             repo_id=noise_neural_classifier,
@@ -204,6 +205,8 @@ if __name__ == "__main__":
                 "sua_mua_classifier",
                 "SpikeInterface/UnitRefine_sua_mua_classifier"
             )
+            logging.info(f"Applying sua-mua classifier from {sua_mua_classifier}")
+
             analyzer_neural = analyzer.remove_units(noise_units.index)
             sua_mua_labels = scur.auto_label_units(
                 sorting_analyzer=analyzer_neural,
