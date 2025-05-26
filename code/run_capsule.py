@@ -67,11 +67,15 @@ if __name__ == "__main__":
     N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
 
     if PARAMS is not None:
-        if Path(PARAMS).is_file():
-            with open(PARAMS, "r") as f:
-                curation_params = json.load(f)
-        else:
+        try:
+            # try to parse the JSON string first to avoid file name too long error
             curation_params = json.loads(PARAMS)
+        except json.JSONDecodeError:
+            if Path(PARAMS).is_file():
+                with open(PARAMS, "r") as f:
+                    curation_params = json.load(f)
+            else:
+                raise ValueError(f"Invalid parameters: {PARAMS} is not a valid JSON string or file path")
     else:
         with open("params.json", "r") as f:
             curation_params = json.load(f)
