@@ -47,11 +47,8 @@ n_jobs_help = (
 n_jobs_group.add_argument("static_n_jobs", nargs="?", default="-1", help=n_jobs_help)
 n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
 
-params_group = parser.add_mutually_exclusive_group()
-params_file_help = "Optional json file with parameters"
-params_group.add_argument("static_params_file", nargs="?", default=None, help=params_file_help)
-params_group.add_argument("--params-file", default=None, help=params_file_help)
-params_group.add_argument("--params-str", default=None, help="Optional json string with parameters")
+parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
+
 
 
 if __name__ == "__main__":
@@ -63,29 +60,31 @@ if __name__ == "__main__":
 
     N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
-    PARAMS_FILE = args.static_params_file or args.params_file
-    PARAMS_STR = args.params_str
+    PARAMS = args.params
 
     # Use CO_CPUS env variable if available
     N_JOBS_CO = os.getenv("CO_CPUS")
     N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
 
-    if PARAMS_FILE is not None:
-        with open(PARAMS_FILE, "r") as f:
-            processing_params = json.load(f)
-    elif PARAMS_STR is not None:
-        processing_params = json.loads(PARAMS_STR)
+    if PARAMS is not None:
+        try:
+            # try to parse the JSON string first to avoid file name too long error
+            curation_params = json.loads(PARAMS)
+        except json.JSONDecodeError:
+            if Path(PARAMS).is_file():
+                with open(PARAMS, "r") as f:
+                    curation_params = json.load(f)
+            else:
+                raise ValueError(f"Invalid parameters: {PARAMS} is not a valid JSON string or file path")
     else:
         with open("params.json", "r") as f:
-            processing_params = json.load(f)
+            curation_params = json.load(f)
 
     data_process_prefix = "data_process_curation"
 
-    job_kwargs = processing_params["job_kwargs"]
+    job_kwargs = curation_params.pop("job_kwargs")
     job_kwargs["n_jobs"] = N_JOBS
     si.set_global_job_kwargs(**job_kwargs)
-
-    curation_params = processing_params["curation"]
 
     ecephys_sorted_folders = [
         p
