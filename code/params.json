@@ -3,9 +3,7 @@
         "chunk_duration": "1s",
         "progress_bar": false
     },
-    "curation": {
-        "query": "isi_violations_ratio < 0.5 and presence_ratio > 0.8 and amplitude_cutoff < 0.1",
-        "noise_neural_classifier": "SpikeInterface/UnitRefine_noise_neural_classifier",
-        "sua_mua_classifier": "SpikeInterface/UnitRefine_sua_mua_classifier"
-    }
+    "query": "isi_violations_ratio < 0.5 and presence_ratio > 0.8 and amplitude_cutoff < 0.1",
+    "noise_neural_classifier": "SpikeInterface/UnitRefine_noise_neural_classifier",
+    "sua_mua_classifier": "SpikeInterface/UnitRefine_sua_mua_classifier"
 }
