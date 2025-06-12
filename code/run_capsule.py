@@ -62,8 +62,8 @@ if __name__ == "__main__":
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
     PARAMS = args.params
 
-    # Use CO_CPUS/SLURM_JOB_CPUS_PER_NODE env variable if available
-    N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("SLURM_JOB_CPUS_PER_NODE")
+    # Use CO_CPUS/SLURM_CPUS_ON_NODE env variable if available
+    N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("SLURM_CPUS_ON_NODE")
     N_JOBS = int(N_JOBS_EXT) if N_JOBS_EXT is not None else N_JOBS
 
     if PARAMS is not None:
