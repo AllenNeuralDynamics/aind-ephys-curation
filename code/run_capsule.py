@@ -47,11 +47,8 @@ n_jobs_help = (
 n_jobs_group.add_argument("static_n_jobs", nargs="?", default="-1", help=n_jobs_help)
 n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
 
-params_group = parser.add_mutually_exclusive_group()
-params_file_help = "Optional json file with parameters"
-params_group.add_argument("static_params_file", nargs="?", default=None, help=params_file_help)
-params_group.add_argument("--params-file", default=None, help=params_file_help)
-params_group.add_argument("--params-str", default=None, help="Optional json string with parameters")
+parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
+
 
 
 if __name__ == "__main__":
@@ -63,30 +60,31 @@ if __name__ == "__main__":
 
     N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
-    PARAMS_FILE = args.static_params_file or args.params_file
-    PARAMS_STR = args.params_str
+    PARAMS = args.params
 
-    # Use CO_CPUS env variable if available
-    N_JOBS_CO = os.getenv("CO_CPUS")
-    N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
+    # Use CO_CPUS/SLURM_CPUS_ON_NODE env variable if available
+    N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("SLURM_CPUS_ON_NODE")
+    N_JOBS = int(N_JOBS_EXT) if N_JOBS_EXT is not None else N_JOBS
 
-    if PARAMS_FILE is not None:
-        logging.info(f"\nUsing custom parameter file: {PARAMS_FILE}")
-        with open(PARAMS_FILE, "r") as f:
-            processing_params = json.load(f)
-    elif PARAMS_STR is not None:
-        processing_params = json.loads(PARAMS_STR)
+    if PARAMS is not None:
+        try:
+            # try to parse the JSON string first to avoid file name too long error
+            curation_params = json.loads(PARAMS)
+        except json.JSONDecodeError:
+            if Path(PARAMS).is_file():
+                with open(PARAMS, "r") as f:
+                    curation_params = json.load(f)
+            else:
+                raise ValueError(f"Invalid parameters: {PARAMS} is not a valid JSON string or file path")
     else:
         with open("params.json", "r") as f:
-            processing_params = json.load(f)
+            curation_params = json.load(f)
 
     data_process_prefix = "data_process_curation"
 
-    job_kwargs = processing_params["job_kwargs"]
+    job_kwargs = curation_params.pop("job_kwargs")
     job_kwargs["n_jobs"] = N_JOBS
     si.set_global_job_kwargs(**job_kwargs)
-
-    curation_params = processing_params["curation"]
 
     ecephys_sorted_folders = [
         p
@@ -118,13 +116,6 @@ if __name__ == "__main__":
 
     logging.info("\nCURATION")
 
-    # curation query
-    isi_violations_ratio_thr = curation_params["isi_violations_ratio_threshold"]
-    presence_ratio_thr = curation_params["presence_ratio_threshold"]
-    amplitude_cutoff_thr = curation_params["amplitude_cutoff_threshold"]
-
-    curation_query = f"isi_violations_ratio < {isi_violations_ratio_thr} and presence_ratio > {presence_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
-
     pipeline_mode = True
     if len(ecephys_sorted_folders) > 0:
         # capsule mode
@@ -135,17 +126,8 @@ if __name__ == "__main__":
     elif (data_folder / "postprocessing_pipeline_output_test").is_dir():
         logging.info("\n*******************\n**** TEST MODE ****\n*******************\n")
         postprocessed_base_folder = data_folder / "postprocessing_pipeline_output_test"
-
-        curation_query = (
-            f"isi_violations_ratio < {isi_violations_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
-        )
-        del curation_params["presence_ratio_threshold"]
     else:
-        curation_query = f"isi_violations_ratio < {isi_violations_ratio_thr} and presence_ratio > {presence_ratio_thr} and amplitude_cutoff < {amplitude_cutoff_thr}"
         postprocessed_base_folder = data_folder
-
-    logging.info(f"Curation query: {curation_query}")
-    curation_notes += f"Curation query: {curation_query}\n"
 
     if pipeline_mode:
         postprocessed_folders = [
@@ -179,6 +161,10 @@ if __name__ == "__main__":
             continue
 
         # pass/fail default QC
+        curation_query = curation_params["query"]
+        logging.info(f"Curation query: {curation_query}")
+        curation_notes += f"Curation query: {curation_query}\n"
+
         qm = analyzer.get_extension("quality_metrics").get_data()
         qm_curated = qm.query(curation_query)
         curated_unit_ids = qm_curated.index.values
@@ -200,22 +186,36 @@ if __name__ == "__main__":
         template_metrics_ext.data["metrics"] = template_metrics_ext.data["metrics"].replace("<NA>","NaN").astype("float32")
 
         # 1. apply the noise/neural classification and remove noise
+        noise_neural_classifier = curation_params.get(
+            "noise_neural_classifier",
+            "SpikeInterface/UnitRefine_noise_neural_classifier"
+        )
+        logging.info(f"Applying noise-neural classifier from {noise_neural_classifier}")
         noise_neuron_labels = scur.auto_label_units(
             sorting_analyzer=analyzer,
-            repo_id="SpikeInterface/UnitRefine_noise_neural_classifier",
+            repo_id=noise_neural_classifier,
             trust_model=True,
         )
         noise_units = noise_neuron_labels[noise_neuron_labels['prediction'] == 'noise']
-        analyzer_neural = analyzer.remove_units(noise_units.index)
 
         # 2. apply the sua/mua classification and aggregate results
-        sua_mua_labels = scur.auto_label_units(
-            sorting_analyzer=analyzer_neural,
-            repo_id="SpikeInterface/UnitRefine_sua_mua_classifier",
-            trust_model=True,
-        )
+        if len(analyzer.unit_ids) > len(noise_units):
+            sua_mua_classifier = curation_params.get(
+                "sua_mua_classifier",
+                "SpikeInterface/UnitRefine_sua_mua_classifier"
+            )
+            logging.info(f"Applying sua-mua classifier from {sua_mua_classifier}")
 
-        all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
+            analyzer_neural = analyzer.remove_units(noise_units.index)
+            sua_mua_labels = scur.auto_label_units(
+                sorting_analyzer=analyzer_neural,
+                repo_id=sua_mua_classifier,
+                trust_model=True,
+            )
+            all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
+        else:
+            all_labels = noise_units
+
         all_labels = all_labels.rename(columns={"prediction": "decoder_label", "probability": "decoder_probability"})
         prediction = all_labels["decoder_label"]
 
