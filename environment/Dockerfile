@@ -1,4 +1,4 @@
-# hash:sha256:8fc38ce2c12d9c8f2ccf29c9edacba68099589289f314e74f1a02aa5d14a4107
+# hash:sha256:41f8bd80e7ed533a99591a274f31d4777e2dc8889183a10258936fef1050e58b
 ARG REGISTRY_HOST
 FROM $REGISTRY_HOST/codeocean/mambaforge3:24.5.0-0-python3.12.4-ubuntu22.04
 
@@ -19,3 +19,6 @@ RUN pip install -U --no-cache-dir \
     aind-data-schema==1.3.0 \
     aind-log-utils==0.2.3 \
     spikeinterface[full]==0.102.3
+
+COPY postInstall /
+RUN /postInstall
