@@ -1,5 +1,5 @@
 metadata_version: 1
-name: Curate Ecephys
+name: Curate Ecephys (dev)
 description: |-
   This capsule is designed to curate spike sorted data for the AIND pipeline.
 
