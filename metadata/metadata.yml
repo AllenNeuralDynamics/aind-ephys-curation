@@ -12,7 +12,6 @@ description: |-
 
   In addition, the capsule automatically labels units as "noise"/"mua"/"sua" based on the a pre-trained
   random forest classifier (UnitRefine).
-
 tags:
 - ecephys
 authors:
