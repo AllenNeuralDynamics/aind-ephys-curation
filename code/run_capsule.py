@@ -247,7 +247,7 @@ if __name__ == "__main__":
             passing_qc=n_passing, 
             failing_qc=n_units - n_passing, 
             noise_units=noise_units,
-            noise_units=n_sua + n_mua,
+            neural_units=n_sua + n_mua,
             sua_unita=n_sua,
             mua_units=n_mua
         )
