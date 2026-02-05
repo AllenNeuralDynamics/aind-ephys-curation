@@ -20,7 +20,9 @@ import spikeinterface.qualitymetrics as sqm
 import spikeinterface.curation as scur
 
 # AIND
-from aind_data_schema.core.processing import DataProcess
+from aind_data_schema.core.processing import DataProcess, ProcessStage
+from aind_data_schema.components.identifiers import Code
+from aind_data_schema_models.process_names import ProcessName
 
 try:
     from aind_log_utils import log
@@ -243,15 +245,19 @@ if __name__ == "__main__":
         curation_outputs = dict(total_units=n_units, passing_qc=n_passing, failing_qc=n_units - n_passing)
         if pipeline_mode:
             curation_process = DataProcess(
+                process_type=ProcessName.EPHYS_CURATION,
+                stage=ProcessStage.PROCESSING,
                 name="Ephys curation",
-                software_version=VERSION,  # either release or git commit
+                experimenters=["Alessio Buccino"],
+                code=Code(
+                    url=URL,
+                    version=VERSION, # either release or git commit
+                    parameters=curation_params
+                ),
                 start_date_time=datetime_start_curation,
                 end_date_time=datetime_start_curation + timedelta(seconds=np.floor(elapsed_time_curation)),
-                input_location=str(data_folder),
-                output_location=str(results_folder),
-                code_url=URL,
-                parameters=curation_params,
-                outputs=curation_outputs,
+                output_path=str(results_folder),
+                output_parameters=curation_outputs,
                 notes=curation_notes,
             )
             with open(curation_output_process_json, "w") as f:
