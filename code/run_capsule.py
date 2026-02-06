@@ -246,9 +246,9 @@ if __name__ == "__main__":
             total_units=n_units, 
             passing_qc=n_passing, 
             failing_qc=n_units - n_passing, 
-            noise_units=noise_units,
+            noise_units=n_noise,
             neural_units=n_sua + n_mua,
-            sua_unita=n_sua,
+            sua_units=n_sua,
             mua_units=n_mua
         )
         if pipeline_mode:
