@@ -16,6 +16,7 @@ import pandas as pd
 
 # SPIKEINTERFACE
 import spikeinterface as si
+from spikeinterface.core.core_tools import check_json
 import spikeinterface.qualitymetrics as sqm
 import spikeinterface.curation as scur
 
@@ -23,6 +24,9 @@ import spikeinterface.curation as scur
 from aind_data_schema.core.processing import DataProcess, ProcessStage
 from aind_data_schema.components.identifiers import Code
 from aind_data_schema_models.process_names import ProcessName
+
+from huggingface_hub.utils import logging as hf_logging
+hf_logging.set_verbosity_error()
 
 try:
     from aind_log_utils import log
@@ -162,79 +166,103 @@ if __name__ == "__main__":
             mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
             continue
 
+        n_units = int(len(analyzer.unit_ids))
+
         # pass/fail default QC
-        curation_query = curation_params["query"]
-        logging.info(f"Curation query: {curation_query}")
-        curation_notes += f"Curation query: {curation_query}\n"
+        qc_thresholds = curation_params["qc_thresholds"]
+        logging.info(f"Curation thresholds: {qc_thresholds}")
+        curation_notes += f"Curation thresholds: {qc_thresholds}\n"
 
         qm = analyzer.get_extension("quality_metrics").get_data()
-        qm_curated = qm.query(curation_query)
-        curated_unit_ids = qm_curated.index.values
+        default_qc_labels = scur.threshold_metrics_label_units(
+            qm,
+            thresholds=qc_thresholds,
+            pass_label=True,
+            fail_label=False,
+            column_name="default_qc"
+        )
+        n_passing_qc = int(np.sum(default_qc_labels["default_qc"]))
+        logging.info(f"\tPassing default QC: {n_passing_qc} / {n_units}")
+        curation_notes += f"Passing default QC: {n_passing_qc}/{n_units}"
+        all_labels = [default_qc_labels]
 
-        # flag units as good/bad depending on QC selection
-        default_qc = np.array([True if unit in curated_unit_ids else False for unit in analyzer.sorting.unit_ids])
-        n_passing = int(np.sum(default_qc))
-        n_units = len(analyzer.unit_ids)
-        logging.info(f"\tPassing default QC: {n_passing} / {n_units}")
-        curation_notes += f"Passing default QC: {n_passing}/{n_units}"
-        # save flags to results folder
-        np.save(results_folder / f"qc_{recording_name}.npy", default_qc)
-
-        # estimate unit labels (noise/mua/sua)
+        # UnitRefine (noise/mua/sua)
 
         # patch for wrong template metrics dtypes.
         # not sure why this happens, but casting to float doesn't hurt
         template_metrics_ext = analyzer.get_extension("template_metrics")
         template_metrics_ext.data["metrics"] = template_metrics_ext.data["metrics"].replace("<NA>","NaN").astype("float32")
 
-        # 1. apply the noise/neural classification and remove noise
         noise_neural_classifier = curation_params.get(
             "noise_neural_classifier",
             "SpikeInterface/UnitRefine_noise_neural_classifier"
         )
-        logging.info(f"Applying noise-neural classifier from {noise_neural_classifier}")
-        noise_neuron_labels = scur.auto_label_units(
-            sorting_analyzer=analyzer,
-            repo_id=noise_neural_classifier,
-            trust_model=True,
+        sua_mua_classifier = curation_params.get(
+            "sua_mua_classifier",
+            "SpikeInterface/UnitRefine_sua_mua_classifier"
         )
-        noise_units = noise_neuron_labels[noise_neuron_labels['prediction'] == 'noise']
+        logging.info(f"Applying UnitRefine with: {noise_neural_classifier} -- {sua_mua_classifier}")
 
-        # 2. apply the sua/mua classification and aggregate results
-        if len(analyzer.unit_ids) > len(noise_units):
-            sua_mua_classifier = curation_params.get(
-                "sua_mua_classifier",
-                "SpikeInterface/UnitRefine_sua_mua_classifier"
-            )
-            logging.info(f"Applying sua-mua classifier from {sua_mua_classifier}")
+        unitrefine_labels = scur.unitrefine_label_units(
+            analyzer,
+            noise_neural_classifier=noise_neural_classifier,
+            sua_mua_classifier=sua_mua_classifier
+        )
+        prediction = unitrefine_labels["unitrefine_label"]
 
-            analyzer_neural = analyzer.remove_units(noise_units.index)
-            sua_mua_labels = scur.auto_label_units(
-                sorting_analyzer=analyzer_neural,
-                repo_id=sua_mua_classifier,
-                trust_model=True,
-            )
-            all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
-        else:
-            all_labels = noise_units
+        n_unitrefine_sua = int(np.sum(prediction == "sua"))
+        n_unitrefine_mua = int(np.sum(prediction == "mua"))
+        n_unitrefine_noise = int(np.sum(prediction == "noise"))
 
-        all_labels = all_labels.rename(columns={"prediction": "decoder_label", "probability": "decoder_probability"})
-        prediction = all_labels["decoder_label"]
+        logging.info(f"\tUnitRefine Noise: {n_unitrefine_noise} / {n_units}")
+        logging.info(f"\tUnitRefine SUA: {n_unitrefine_sua} / {n_units}")
+        logging.info(f"\tUnitRefine MUA: {n_unitrefine_mua} / {n_units}")
 
-        n_sua = int(np.sum(prediction == "sua"))
-        n_mua = int(np.sum(prediction == "mua"))
-        n_noise = int(np.sum(prediction == "noise"))
-        n_units = int(len(analyzer.unit_ids))
+        curation_notes += f"UnitRefine Noise: {n_unitrefine_noise} / {n_units}\n"
+        curation_notes += f"UnitRefine SUA: {n_unitrefine_sua} / {n_units}\n"
+        curation_notes += f"UnitRefine MUA: {n_unitrefine_mua} / {n_units}\n"
+        all_labels.append(unitrefine_labels)
 
-        logging.info(f"\tNoise: {n_noise} / {n_units}")
-        logging.info(f"\tSUA: {n_sua} / {n_units}")
-        logging.info(f"\tMUA: {n_mua} / {n_units}")
+        # Bombcell
+        bombcell_params = curation_params.get("bombcell")
+        try:
+            bombcell_labels = scur.bombcell_label_units(analyzer, thresholds=bombcell_params)
 
-        curation_notes += f"Noise: {n_noise} / {n_units}\n"
-        curation_notes += f"SUA: {n_sua} / {n_units}\n"
-        curation_notes += f"MUA: {n_mua} / {n_units}\n"
+            n_bombcell_sua = int(np.sum(prediction == "good"))
+            n_bombcell_mua = int(np.sum(prediction == "mua"))
+            n_bombcell_noise = int(np.sum(prediction == "noise"))
+            n_bombcell_non_somatic = int(np.sum(prediction == "noise"))
 
-        all_labels.to_csv(results_folder / f"unit_classifier_{recording_name}.csv", index=False)
+            logging.info(f"\tBombcell Noise: {n_bombcell_noise} / {n_units}")
+            logging.info(f"\tBombcell SUA: {n_bombcell_sua} / {n_units}")
+            logging.info(f"\tBombcell MUA: {n_bombcell_mua} / {n_units}")
+            logging.info(f"\tBombcell NON-SOMA: {n_bombcell_non_somatic} / {n_units}")
+
+            curation_notes += f"Bombcell Noise: {n_bombcell_noise} / {n_units}\n"
+            curation_notes += f"Bombcell SUA: {n_bombcell_sua} / {n_units}\n"
+            curation_notes += f"Bombcell MUA: {n_bombcell_mua} / {n_units}\n"
+            curation_notes += f"Bombcell NON-SOMA: {n_bombcell_non_somatic} / {n_units}\n"
+            all_labels.append(bombcell_labels)
+        except Exception as e:
+            bombcell_labels = None
+            logging.info(f"Failed to apply bombcell labeling. Error:\n{e}")
+
+        all_labels_df = pd.concat(all_labels, axis=1)
+        all_labels_df.to_csv(results_folder / f"unit_labels_{recording_name}.csv", index=False)
+
+        # Apply auto-merging
+        slay_params = curation_params.get("slay")
+        potential_merges = scur.compute_merge_unit_groups(
+            analyzer,
+            preset="slay",
+            steps_params=slay_params
+        )
+        n_slay_merges = len(potential_merges)
+        logging.info(f"\tSLAy found {len(potential_merges)} potential merges")
+        curation_notes += f"SLAy found {len(potential_merges)} potential merges\n"
+
+        with open(results_folder / f"unit_merges_{recording_name}.json", mode="w") as f:
+            json.dump(check_json(potential_merges), f)
         
         t_curation_end = time.perf_counter()
         elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
@@ -242,7 +270,26 @@ if __name__ == "__main__":
         # save params in output
         curation_params["recording_name"] = recording_name
 
-        curation_outputs = dict(total_units=n_units, passing_qc=n_passing, failing_qc=n_units - n_passing)
+        curation_outputs = dict(
+            total_units=n_units, 
+            passing_qc=n_passing_qc,
+            failing_qc=n_units - n_passing_qc,
+            unitrefine_noise=n_unitrefine_noise,
+            unitrefine_sua=n_unitrefine_sua,
+            unitrefine_mua=n_unitrefine_mua,
+            slay_merges=n_slay_merges
+        )
+
+        if bombcell_labels is not None:
+            curation_outputs.update(
+                dict(
+                    bombcell_noise=n_bombcell_noise,
+                    bombcell_sua=n_bombcell_sua,
+                    bombcell_mua=n_bombcell_mua,
+                    bombcell_non_somatic=n_bombcell_non_somatic,
+                )
+            )
+
         if pipeline_mode:
             curation_process = DataProcess(
                 process_type=ProcessName.EPHYS_CURATION,
