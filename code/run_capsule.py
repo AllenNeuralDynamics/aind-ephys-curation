@@ -208,11 +208,10 @@ if __name__ == "__main__":
             noise_neural_classifier=noise_neural_classifier,
             sua_mua_classifier=sua_mua_classifier
         )
-        prediction = unitrefine_labels["unitrefine_label"]
 
-        n_unitrefine_sua = int(np.sum(prediction == "sua"))
-        n_unitrefine_mua = int(np.sum(prediction == "mua"))
-        n_unitrefine_noise = int(np.sum(prediction == "noise"))
+        n_unitrefine_sua = int(np.sum(unitrefine_labels["unitrefine_label"] == "sua"))
+        n_unitrefine_mua = int(np.sum(unitrefine_labels["unitrefine_label"] == "mua"))
+        n_unitrefine_noise = int(np.sum(unitrefine_labels["unitrefine_label"] == "noise"))
 
         logging.info(f"\tUnitRefine Noise: {n_unitrefine_noise} / {n_units}")
         logging.info(f"\tUnitRefine SUA: {n_unitrefine_sua} / {n_units}")
@@ -228,10 +227,10 @@ if __name__ == "__main__":
         try:
             bombcell_labels = scur.bombcell_label_units(analyzer, thresholds=bombcell_params)
 
-            n_bombcell_sua = int(np.sum(prediction == "good"))
-            n_bombcell_mua = int(np.sum(prediction == "mua"))
-            n_bombcell_noise = int(np.sum(prediction == "noise"))
-            n_bombcell_non_somatic = int(np.sum(prediction == "noise"))
+            n_bombcell_sua = int(np.sum(bombcell_labels["bombcell_label"] == "good"))
+            n_bombcell_mua = int(np.sum(bombcell_labels["bombcell_label"] == "mua"))
+            n_bombcell_noise = int(np.sum(bombcell_labels["bombcell_label"] == "noise"))
+            n_bombcell_non_somatic = int(np.sum(bombcell_labels["bombcell_label"] == "non_soma"))
 
             logging.info(f"\tBombcell Noise: {n_bombcell_noise} / {n_units}")
             logging.info(f"\tBombcell SUA: {n_bombcell_sua} / {n_units}")
