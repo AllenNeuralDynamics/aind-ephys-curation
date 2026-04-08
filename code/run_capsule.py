@@ -262,6 +262,9 @@ if __name__ == "__main__":
 
         with open(results_folder / f"unit_merges_{recording_name}.json", mode="w") as f:
             json.dump(check_json(potential_merges), f)
+
+        # Create pre-curation.json
+        # TODO
         
         t_curation_end = time.perf_counter()
         elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
