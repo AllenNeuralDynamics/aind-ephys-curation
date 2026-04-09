@@ -52,6 +52,22 @@ n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
 parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
 
 
+def create_mock_results(recording_name, include_qc=True, include_classifier=True):
+    """Creates mock curation results.
+
+    Parameters
+    ----------
+    recording_name : str
+        The name of the recording for which to create mock results.
+        This is used to name the output files.
+    """
+    if include_qc:
+        mock_qc = np.array([], dtype=bool)
+        np.save(results_folder / f"qc_{recording_name}.npy", mock_qc)
+    if include_classifier:
+        mock_df = pd.DataFrame()
+        mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
+
 
 if __name__ == "__main__":
     ####### CURATION ########
@@ -155,102 +171,105 @@ if __name__ == "__main__":
             logging.info(f"Curating recording: {recording_name}")
         except Exception as e:
             logging.info(f"Spike sorting failed on {recording_name}. Skipping curation")
-            # create an mock result file (needed for pipeline)
-            mock_qc = np.array([], dtype=bool)
-            np.save(results_folder / f"qc_{recording_name}.npy", mock_qc)
-            mock_df = pd.DataFrame()
-            mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
+            create_mock_results(recording_name)
             continue
 
-        # pass/fail default QC
-        curation_query = curation_params["query"]
-        logging.info(f"Curation query: {curation_query}")
-        curation_notes += f"Curation query: {curation_query}\n"
-
-        qm = analyzer.get_extension("quality_metrics").get_data()
-        qm_curated = qm.query(curation_query)
-        curated_unit_ids = qm_curated.index.values
-
-        # flag units as good/bad depending on QC selection
-        default_qc = np.array([True if unit in curated_unit_ids else False for unit in analyzer.sorting.unit_ids])
-        n_passing = int(np.sum(default_qc))
         n_units = len(analyzer.unit_ids)
-        logging.info(f"\tPassing default QC: {n_passing} / {n_units}")
-        curation_notes += f"Passing default QC: {n_passing}/{n_units}"
-        # save flags to results folder
-        np.save(results_folder / f"qc_{recording_name}.npy", default_qc)
+        qm_ext = analyzer.get_extension("quality_metrics")
+        tm_ext = analyzer.get_extension("template_metrics")
 
-        # estimate unit labels (noise/mua/sua)
+        curation_outputs = {"total_units": n_units}
+        curation_params["recording_name"] = recording_name
 
-        # patch for wrong template metrics dtypes.
-        # not sure why this happens, but casting to float doesn't hurt
-        template_metrics_ext = analyzer.get_extension("template_metrics")
-        template_metrics_ext.data["metrics"] = template_metrics_ext.data["metrics"].replace("<NA>","NaN").astype("float32")
+        if qm_ext is None:
+            logging.info(f"No quality metrics found for {recording_name}. Skipping curation")
+            create_mock_results(recording_name)
+        else:
+            # pass/fail default QC
+            curation_query = curation_params["query"]
+            logging.info(f"Curation query: {curation_query}")
+            curation_notes += f"Curation query: {curation_query}\n"
 
-        # 1. apply the noise/neural classification and remove noise
-        noise_neural_classifier = curation_params.get(
-            "noise_neural_classifier",
-            "SpikeInterface/UnitRefine_noise_neural_classifier"
-        )
-        logging.info(f"Applying noise-neural classifier from {noise_neural_classifier}")
-        noise_neuron_labels = scur.auto_label_units(
-            sorting_analyzer=analyzer,
-            repo_id=noise_neural_classifier,
-            trust_model=True,
-        )
-        noise_units = noise_neuron_labels[noise_neuron_labels['prediction'] == 'noise']
+            qm = qm_ext.get_data()
+            qm_curated = qm.query(curation_query)
+            curated_unit_ids = qm_curated.index.values
 
-        # 2. apply the sua/mua classification and aggregate results
-        if len(analyzer.unit_ids) > len(noise_units):
-            sua_mua_classifier = curation_params.get(
-                "sua_mua_classifier",
-                "SpikeInterface/UnitRefine_sua_mua_classifier"
+            # flag units as good/bad depending on QC selection
+            default_qc = np.array([True if unit in curated_unit_ids else False for unit in analyzer.sorting.unit_ids])
+            n_passing = int(np.sum(default_qc))
+            logging.info(f"\tPassing default QC: {n_passing} / {n_units}")
+            curation_notes += f"Passing default QC: {n_passing}/{n_units}"
+            # save flags to results folder
+            np.save(results_folder / f"qc_{recording_name}.npy", default_qc)
+            curation_outputs["passing_qc"] = n_passing
+            curation_outputs["failing_qc"] = n_units - n_passing
+
+        if tm_ext is None:
+            create_mock_results(recording_name, include_qc=False, include_classifier=True)
+            logging.info(f"No template metrics found for {recording_name}. Skipping unit classification")
+        else:
+            # estimate unit labels (noise/mua/sua)
+            
+            # patch for wrong template metrics dtypes (not sure why this happens, but casting to float doesn't hurt)
+            tm_ext.data["metrics"] = tm_ext.data["metrics"].replace("<NA>","NaN").astype("float32")
+
+            # 1. apply the noise/neural classification and remove noise
+            noise_neural_classifier = curation_params.get(
+                "noise_neural_classifier",
+                "SpikeInterface/UnitRefine_noise_neural_classifier"
             )
-            logging.info(f"Applying sua-mua classifier from {sua_mua_classifier}")
-
-            analyzer_neural = analyzer.remove_units(noise_units.index)
-            sua_mua_labels = scur.auto_label_units(
-                sorting_analyzer=analyzer_neural,
-                repo_id=sua_mua_classifier,
+            logging.info(f"Applying noise-neural classifier from {noise_neural_classifier}")
+            noise_neuron_labels = scur.auto_label_units(
+                sorting_analyzer=analyzer,
+                repo_id=noise_neural_classifier,
                 trust_model=True,
             )
-            all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
-        else:
-            all_labels = noise_units
+            noise_units = noise_neuron_labels[noise_neuron_labels['prediction'] == 'noise']
 
-        all_labels = all_labels.rename(columns={"prediction": "decoder_label", "probability": "decoder_probability"})
-        prediction = all_labels["decoder_label"]
+            # 2. apply the sua/mua classification and aggregate results
+            if len(analyzer.unit_ids) > len(noise_units):
+                sua_mua_classifier = curation_params.get(
+                    "sua_mua_classifier",
+                    "SpikeInterface/UnitRefine_sua_mua_classifier"
+                )
+                logging.info(f"Applying sua-mua classifier from {sua_mua_classifier}")
 
-        n_sua = int(np.sum(prediction == "sua"))
-        n_mua = int(np.sum(prediction == "mua"))
-        n_noise = int(np.sum(prediction == "noise"))
-        n_units = int(len(analyzer.unit_ids))
+                analyzer_neural = analyzer.remove_units(noise_units.index)
+                sua_mua_labels = scur.auto_label_units(
+                    sorting_analyzer=analyzer_neural,
+                    repo_id=sua_mua_classifier,
+                    trust_model=True,
+                )
+                all_labels = pd.concat([sua_mua_labels, noise_units]).sort_index()
+            else:
+                all_labels = noise_units
 
-        logging.info(f"\tNoise: {n_noise} / {n_units}")
-        logging.info(f"\tSUA: {n_sua} / {n_units}")
-        logging.info(f"\tMUA: {n_mua} / {n_units}")
+            all_labels = all_labels.rename(columns={"prediction": "decoder_label", "probability": "decoder_probability"})
+            all_labels.to_csv(results_folder / f"unit_classifier_{recording_name}.csv", index=False)
 
-        curation_notes += f"Noise: {n_noise} / {n_units}\n"
-        curation_notes += f"SUA: {n_sua} / {n_units}\n"
-        curation_notes += f"MUA: {n_mua} / {n_units}\n"
+            prediction = all_labels["decoder_label"]
+            n_sua = int(np.sum(prediction == "sua"))
+            n_mua = int(np.sum(prediction == "mua"))
+            n_noise = int(np.sum(prediction == "noise"))
+            n_units = int(len(analyzer.unit_ids))
 
-        all_labels.to_csv(results_folder / f"unit_classifier_{recording_name}.csv", index=False)
+            logging.info(f"\tNoise: {n_noise} / {n_units}")
+            logging.info(f"\tSUA: {n_sua} / {n_units}")
+            logging.info(f"\tMUA: {n_mua} / {n_units}")
+
+            curation_notes += f"Noise: {n_noise} / {n_units}\n"
+            curation_notes += f"SUA: {n_sua} / {n_units}\n"
+            curation_notes += f"MUA: {n_mua} / {n_units}\n"
+
+            curation_outputs["noise_units"] = n_noise
+            curation_outputs["neural_units"] = n_sua + n_mua
+            curation_outputs["sua_units"] = n_sua
+            curation_outputs["mua_units"] = n_mua
+
         
         t_curation_end = time.perf_counter()
         elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
 
-        # save params in output
-        curation_params["recording_name"] = recording_name
-
-        curation_outputs = dict(
-            total_units=n_units, 
-            passing_qc=n_passing, 
-            failing_qc=n_units - n_passing, 
-            noise_units=n_noise,
-            neural_units=n_sua + n_mua,
-            sua_units=n_sua,
-            mua_units=n_mua
-        )
         if pipeline_mode:
             curation_process = DataProcess(
                 process_type=ProcessName.EPHYS_CURATION,
