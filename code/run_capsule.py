@@ -7,11 +7,13 @@ import os
 import sys
 import argparse
 import json
-import numpy as np
 from pathlib import Path
 import time
 import logging
+from copy import deepcopy
 from datetime import datetime, timedelta
+
+import numpy as np
 import pandas as pd
 
 # SPIKEINTERFACE
@@ -19,6 +21,7 @@ import spikeinterface as si
 from spikeinterface.core.core_tools import check_json
 import spikeinterface.qualitymetrics as sqm
 import spikeinterface.curation as scur
+from spikeinterface.curation.curation_model import Curation
 
 # AIND
 from aind_data_schema.core.processing import DataProcess, ProcessStage
@@ -27,6 +30,20 @@ from aind_data_schema_models.process_names import ProcessName
 
 from huggingface_hub.utils import logging as hf_logging
 hf_logging.set_verbosity_error()
+
+DEFAULT_CURATION_DICT = {
+    "format_version": "2",
+    "label_definitions": {
+        "quality": {
+            "label_options": ["good", "MUA", "noise"],
+            "exclusive": True,
+        },
+    },
+    "manual_labels": [],
+    "removed": [],
+    "merges": [],
+    "splits": [],
+}
 
 try:
     from aind_log_utils import log
@@ -44,8 +61,14 @@ results_folder = Path("../results/")
 # Define argument parser
 parser = argparse.ArgumentParser(description="Curate ecephys data")
 
+noise_strategy_group = parser.add_mutually_exclusive_group()
+noise_strategy_help = (
+    "Noise strategy to label noise units (bombcell, unitrefine, or bombcell+unitrefine)"
+)
+noise_strategy_group.add_argument("static_noise_strategy", nargs="?", default="-1", help=noise_strategy_help)
+noise_strategy_group.add_argument("--noise-strategy",  help=noise_strategy_help)
+
 n_jobs_group = parser.add_mutually_exclusive_group()
-n_jobs_help = "Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled"
 n_jobs_help = (
     "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
     "It can also be a float between 0 and 1 to use a fraction of available cores"
@@ -66,6 +89,7 @@ if __name__ == "__main__":
 
     N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
+    NOISE_STRATEGY = args.static_noise_strategy or args.noise_strategy
     PARAMS = args.params
 
     # Use CO_CPUS/SLURM_CPUS_ON_NODE env variable if available
@@ -249,10 +273,41 @@ if __name__ == "__main__":
         all_labels_df = pd.concat(all_labels, axis=1)
         all_labels_df.to_csv(results_folder / f"unit_labels_{recording_name}.csv", index=False)
 
+        # Apply noise labels
+        noise_strategy = NOISE_STRATEGY or curation_params.get("noise_strategy")
+        if noise_strategy is not None:
+            assert noise_strategy in ["bombcell", "unitrefine", "bombcell+unitrefine"], (
+                "Noise strategy can be: 'bombcell' / 'unitrefine' / 'bombcell+unitrefine'"
+            )
+            if "bombcell" in noise_strategy and bombcell_labels is None:
+                raise ValueError(
+                    "To use bombcell you need the bombcell classification, but bombcell failed!"
+                )
+            logging.info(f"Labeling noise units with '{noise_strategy}' strategy")
+            noise_mask = None
+            if noise_strategy == "bombcell":
+                noise_units = analyzer.unit_ids[all_labels_df["bombcell_label"] == "noise"]
+            elif noise_strategy == "unitrefine":
+                noise_units = analyzer.unit_ids[all_labels_df["unitrefine_label"] == "noise"]
+            elif noise_strategy == "bombcell+unitrefine":
+                noise_units = analyzer.unit_ids[
+                    (all_labels_df["unitrefine_label"] == "noise") & 
+                    (all_labels_df["bombcell_label"] == "noise")
+                ]
+        else:
+            noise_units = []
+
+        if len(noise_units) > 0:
+            neural_untis = [u for u in analyzer.unit_ids if u not in noise_units]
+            analyzer_neural = analyzer.select_units(unit_ids=neural_untis)
+            logging.info(f"Applying SLAy on neural units ({len(noise_units)}/{n_units})")
+        else:
+            analyzer_neural = analyzer
+
         # Apply auto-merging
         slay_params = curation_params.get("slay")
         potential_merges = scur.compute_merge_unit_groups(
-            analyzer,
+            analyzer_neural,
             preset="slay",
             steps_params=slay_params
         )
@@ -264,7 +319,17 @@ if __name__ == "__main__":
             json.dump(check_json(potential_merges), f)
 
         # Create pre-curation.json
-        # TODO
+        curation_dict = deepcopy(DEFAULT_CURATION_DICT)
+        curation_dict["unit_ids"] = analyzer.unit_ids
+        # Remove noise units
+        curation_dict["removed"] = list(noise_units)
+        for unit_id in noise_units:
+            curation_dict["manual_labels"].append({"unit_id": unit_id, "quality": ["noise"]})
+        # Add SLAy merges
+        curation_dict["merges"] = [{"unit_ids": list(merge)} for merge in potential_merges]
+        curation_model = Curation(**curation_dict)
+        with open(results_folder / f"curation_{recording_name}.json", "w") as f:
+            f.write(curation_model.model_dump_json(indent=4))
         
         t_curation_end = time.perf_counter()
         elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
