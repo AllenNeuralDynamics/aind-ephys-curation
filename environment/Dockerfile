@@ -1,4 +1,4 @@
-# hash:sha256:097a033f5f96f9ed4e4eece0cd9892707aa7d37d2edbab5513684eabcb72ce5d
+# hash:sha256:b3d4d26001a144f992c4531f20d6a3ac28afa56dace6b9b873c16ab41f6512ab
 ARG REGISTRY_HOST
 FROM $REGISTRY_HOST/codeocean/mambaforge3:24.5.0-0-python3.12.4-ubuntu22.04
 
@@ -14,4 +14,4 @@ RUN pip install -U --no-cache-dir \
     aind-data-schema==2.4.0 \
     aind-log-utils==0.2.3 \
     scikit-learn==1.4.2 \
-    spikeinterface[full]==0.104.0
+    spikeinterface[full]==0.104.3
