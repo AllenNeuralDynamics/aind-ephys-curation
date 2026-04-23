@@ -64,8 +64,8 @@ if __name__ == "__main__":
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
     PARAMS = args.params
 
-    # Use CO_CPUS/SLURM_CPUS_ON_NODE env variable if available
-    N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("SLURM_CPUS_ON_NODE") or os.getenv("SLURM_CPUS_PER_TASK")
+    # Use CO_CPUS/N_JOBS_EXT env variable if available
+    N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("N_JOBS_EXT")
     N_JOBS = int(N_JOBS_EXT) if N_JOBS_EXT is not None else N_JOBS
 
     if PARAMS is not None:
@@ -242,7 +242,15 @@ if __name__ == "__main__":
         # save params in output
         curation_params["recording_name"] = recording_name
 
-        curation_outputs = dict(total_units=n_units, passing_qc=n_passing, failing_qc=n_units - n_passing)
+        curation_outputs = dict(
+            total_units=n_units, 
+            passing_qc=n_passing, 
+            failing_qc=n_units - n_passing, 
+            noise_units=n_noise,
+            neural_units=n_sua + n_mua,
+            sua_units=n_sua,
+            mua_units=n_mua
+        )
         if pipeline_mode:
             curation_process = DataProcess(
                 process_type=ProcessName.EPHYS_CURATION,
