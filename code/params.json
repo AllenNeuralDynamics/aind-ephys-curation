@@ -38,7 +38,7 @@
             "main_peak_to_trough_ratio": {"greater": null, "less": 0.8}
         }
     },
-    "noise_strategy": "unitrefine+bombcell",
+    "noise_strategy": "bombcell+unitrefine",
     "slay": {
         "template_similarity": {"templates_diff": 0.35},
         "slay": {
