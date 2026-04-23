@@ -40,11 +40,11 @@
     },
     "noise_strategy": "unitrefine+bombcell",
     "slay": {
-        "template_similarity": {"templates_diff": 0.3},
+        "template_similarity": {"templates_diff": 0.35},
         "slay": {
             "k1": 0.25, 
             "k2": 1, 
-            "slay_threshold": 0.5
+            "slay_threshold": 0.4
         }
     }
 }
