@@ -256,7 +256,7 @@ if __name__ == "__main__":
                 process_type=ProcessName.EPHYS_CURATION,
                 stage=ProcessStage.PROCESSING,
                 name="Ephys curation",
-                experimenters=["Alessio Buccino"],
+                experimenters=["AIND Pipeline"],
                 code=Code(
                     url=URL,
                     version=VERSION, # either release or git commit
