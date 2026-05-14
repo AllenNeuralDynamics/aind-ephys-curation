@@ -19,6 +19,9 @@ import spikeinterface as si
 import spikeinterface.qualitymetrics as sqm
 import spikeinterface.curation as scur
 
+from huggingface_hub.utils import logging as hf_logging
+hf_logging.set_verbosity_error()
+
 # AIND
 from aind_data_schema.core.processing import DataProcess, ProcessStage
 from aind_data_schema.components.identifiers import Code
