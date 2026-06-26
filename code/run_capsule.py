@@ -23,6 +23,9 @@ import spikeinterface.qualitymetrics as sqm
 import spikeinterface.curation as scur
 from spikeinterface.curation.curation_model import Curation
 
+from huggingface_hub.utils import logging as hf_logging
+hf_logging.set_verbosity_error()
+
 # AIND
 from aind_data_schema.core.processing import DataProcess, ProcessStage
 from aind_data_schema.components.identifiers import Code
@@ -78,6 +81,22 @@ n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
 
 parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
 
+
+def create_mock_results(recording_name, include_qc=True, include_classifier=True):
+    """Creates mock curation results.
+
+    Parameters
+    ----------
+    recording_name : str
+        The name of the recording for which to create mock results.
+        This is used to name the output files.
+    """
+    if include_qc:
+        mock_qc = np.array([], dtype=bool)
+        np.save(results_folder / f"qc_{recording_name}.npy", mock_qc)
+    if include_classifier:
+        mock_df = pd.DataFrame()
+        mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
 
 
 if __name__ == "__main__":
@@ -183,14 +202,23 @@ if __name__ == "__main__":
             logging.info(f"Curating recording: {recording_name}")
         except Exception as e:
             logging.info(f"Spike sorting failed on {recording_name}. Skipping curation")
-            # create an mock result file (needed for pipeline)
-            mock_qc = np.array([], dtype=bool)
-            np.save(results_folder / f"qc_{recording_name}.npy", mock_qc)
-            mock_df = pd.DataFrame()
-            mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
+            create_mock_results(recording_name)
             continue
 
         n_units = int(len(analyzer.unit_ids))
+
+        # UnitRefine (noise/mua/sua)
+        n_units = len(analyzer.unit_ids)
+        qm_ext = analyzer.get_extension("quality_metrics")
+        tm_ext = analyzer.get_extension("template_metrics")
+
+        curation_outputs = {"total_units": n_units}
+        curation_params["recording_name"] = recording_name
+
+        if qm_ext is None:
+            logging.info(f"No quality metrics found for {recording_name}. Skipping curation")
+            create_mock_results(recording_name)
+            continue
 
         # pass/fail default QC
         qc_thresholds = curation_params["qc_thresholds"]
@@ -210,12 +238,10 @@ if __name__ == "__main__":
         curation_notes += f"Passing default QC: {n_passing_qc}/{n_units}"
         all_labels = [default_qc_labels]
 
-        # UnitRefine (noise/mua/sua)
-
-        # patch for wrong template metrics dtypes.
-        # not sure why this happens, but casting to float doesn't hurt
-        template_metrics_ext = analyzer.get_extension("template_metrics")
-        template_metrics_ext.data["metrics"] = template_metrics_ext.data["metrics"].replace("<NA>","NaN").astype("float32")
+        if tm_ext is None:
+            create_mock_results(recording_name, include_qc=False, include_classifier=True)
+            logging.info(f"No template metrics found for {recording_name}. Skipping unit classification")
+            continue
 
         noise_neural_classifier = curation_params.get(
             "noise_neural_classifier",
@@ -339,15 +365,6 @@ if __name__ == "__main__":
 
         curation_outputs = dict(
             total_units=n_units, 
-<<<<<<< HEAD
-            passing_qc=n_passing, 
-            failing_qc=n_units - n_passing, 
-            noise_units=n_noise,
-            neural_units=n_sua + n_mua,
-            sua_units=n_sua,
-            mua_units=n_mua
-        )
-=======
             passing_qc=n_passing_qc,
             failing_qc=n_units - n_passing_qc,
             unitrefine_noise=n_unitrefine_noise,
@@ -366,26 +383,24 @@ if __name__ == "__main__":
                 )
             )
 
->>>>>>> dev
-        if pipeline_mode:
-            curation_process = DataProcess(
-                process_type=ProcessName.EPHYS_CURATION,
-                stage=ProcessStage.PROCESSING,
-                name="Ephys curation",
-                experimenters=["Alessio Buccino"],
-                code=Code(
-                    url=URL,
-                    version=VERSION, # either release or git commit
-                    parameters=curation_params
-                ),
-                start_date_time=datetime_start_curation,
-                end_date_time=datetime_start_curation + timedelta(seconds=np.floor(elapsed_time_curation)),
-                output_path=str(results_folder),
-                output_parameters=curation_outputs,
-                notes=curation_notes,
-            )
-            with open(curation_output_process_json, "w") as f:
-                f.write(curation_process.model_dump_json(indent=3))
+        curation_process = DataProcess(
+            process_type=ProcessName.EPHYS_CURATION,
+            stage=ProcessStage.PROCESSING,
+            name="Ephys curation",
+            experimenters=["AIND Pipeline"],
+            code=Code(
+                url=URL,
+                version=VERSION, # either release or git commit
+                parameters=curation_params
+            ),
+            start_date_time=datetime_start_curation,
+            end_date_time=datetime_start_curation + timedelta(seconds=np.floor(elapsed_time_curation)),
+            output_path=str(results_folder),
+            output_parameters=curation_outputs,
+            notes=curation_notes,
+        )
+        with open(curation_output_process_json, "w") as f:
+            f.write(curation_process.model_dump_json(indent=3))
 
     t_curation_end_all = time.perf_counter()
     elapsed_time_curation_all = np.round(t_curation_end_all - t_curation_start_all, 2)
