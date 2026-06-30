@@ -68,7 +68,7 @@ noise_strategy_group = parser.add_mutually_exclusive_group()
 noise_strategy_help = (
     "Noise strategy to label noise units (bombcell, unitrefine, or bombcell+unitrefine)"
 )
-noise_strategy_group.add_argument("static_noise_strategy", nargs="?", default="-1", help=noise_strategy_help)
+noise_strategy_group.add_argument("static_noise_strategy", nargs="?", help=noise_strategy_help)
 noise_strategy_group.add_argument("--noise-strategy",  help=noise_strategy_help)
 
 n_jobs_group = parser.add_mutually_exclusive_group()
@@ -163,7 +163,8 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
 
-    logging.info("\nCURATION")
+    logging.info(f"Running curation with the following parameters:")
+    logging.info(f"\tNOISE_STRATEGY: {NOISE_STRATEGY}")
 
     pipeline_mode = True
     if len(ecephys_sorted_folders) > 0:
