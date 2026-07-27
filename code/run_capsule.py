@@ -227,8 +227,9 @@ if __name__ == "__main__":
         )
         logging.info(f"Applying UnitRefine with: {noise_neural_classifier} -- {sua_mua_classifier}")
 
+        metrics = analyzer.get_metrics_extension_data()
         unitrefine_labels = scur.unitrefine_label_units(
-            analyzer,
+            metrics=metrics,
             noise_neural_classifier=noise_neural_classifier,
             sua_mua_classifier=sua_mua_classifier
         )
