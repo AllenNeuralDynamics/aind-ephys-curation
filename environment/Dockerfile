@@ -16,6 +16,4 @@ RUN pip install -U --no-cache-dir \
     scikit-learn==1.4.2 \
     spikeinterface[full]==0.104.7
 
-COPY postInstall /
-RUN --mount=type=secret,id=secrets . /run/secrets/secrets \
-    && /postInstall
+RUN --mount=type=secret,id=secrets . /run/secrets/secrets
