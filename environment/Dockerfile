@@ -1,4 +1,4 @@
-# hash:sha256:b3d4d26001a144f992c4531f20d6a3ac28afa56dace6b9b873c16ab41f6512ab
+# hash:sha256:f88c884f7be3c09e5c1487b7066d9dcbab145c9db71d8be7bc4ea476a5050264
 ARG REGISTRY_HOST
 FROM $REGISTRY_HOST/codeocean/mambaforge3:24.5.0-0-python3.12.4-ubuntu22.04
 
@@ -11,7 +11,11 @@ RUN conda install -y \
     && conda clean -ya
 
 RUN pip install -U --no-cache-dir \
-    aind-data-schema==2.4.0 \
+    aind-data-schema==2.8.1 \
     aind-log-utils==0.2.3 \
     scikit-learn==1.4.2 \
-    spikeinterface[full]==0.104.3
+    spikeinterface[full]==0.104.7
+
+COPY postInstall /
+RUN --mount=type=secret,id=secrets . /run/secrets/secrets \
+    && /postInstall

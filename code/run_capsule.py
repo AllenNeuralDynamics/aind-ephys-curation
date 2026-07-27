@@ -47,6 +47,7 @@ DEFAULT_CURATION_DICT = {
     "merges": [],
     "splits": [],
 }
+MAX_MISSING_BOMBCELL_METRICS = 2
 
 try:
     from aind_log_utils import log
@@ -69,7 +70,7 @@ noise_strategy_help = (
     "Noise strategy to label noise units (bombcell, unitrefine, or bombcell+unitrefine)"
 )
 noise_strategy_group.add_argument("static_noise_strategy", nargs="?", help=noise_strategy_help)
-noise_strategy_group.add_argument("--noise-strategy",  help=noise_strategy_help)
+noise_strategy_group.add_argument("--noise-strategy", default="unitrefine", help=noise_strategy_help)
 
 n_jobs_group = parser.add_mutually_exclusive_group()
 n_jobs_help = (
@@ -97,6 +98,64 @@ def create_mock_results(recording_name, include_qc=True, include_classifier=True
     if include_classifier:
         mock_df = pd.DataFrame()
         mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
+
+
+def check_unitrefine_metrics(noise_neural_classifier, sua_mua_classifier, metrics):
+    """Check if the required metrics for the given classifiers are present in the metrics dataframe.
+
+    Parameters
+    ----------
+    noise_neural_classifier : str
+        The name of the noise neural classifier.
+    sua_mua_classifier : str
+        The name of the SUA/MUA classifier.
+    metrics : pd.DataFrame
+        The dataframe containing the quality metrics.
+
+    Returns
+    -------
+    bool
+        True if all required metrics are present, False otherwise.
+    """
+    required_metrics_noise_neural = scur.get_required_metrics_from_model(repo_id=noise_neural_classifier, trust_model=True)
+    if sua_mua_classifier is not None:
+        required_metrics_sua_mua = scur.get_required_metrics_from_model(repo_id=sua_mua_classifier, trust_model=True)
+    else:
+        required_metrics_sua_mua = []
+    required_metrics = list(set(required_metrics_noise_neural + required_metrics_sua_mua))
+   
+    all_available = all([col in metrics.columns for col in required_metrics])
+    missing_metrics = [r for r in required_metrics if r not in list(metrics.columns)]
+    return all_available, missing_metrics
+
+
+def check_bombcell_params(bombcell_params, metrics):
+    """Check if the bombcell parameters are valid and if the required metrics are present in the metrics dataframe.
+
+    Parameters
+    ----------
+    bombcell_params : dict
+        The parameters for the bombcell labeling.
+    metrics : pd.DataFrame
+        The dataframe containing the quality metrics.
+
+    Returns
+    -------
+    bool
+        True if the bombcell parameters are valid and all required metrics are present, False otherwise.
+    """
+    if bombcell_params is None:
+        return False
+
+    required_metrics_bombcell = []
+    for category, metric_dict in bombcell_params.items():
+        for metric_name in metric_dict:
+            required_metrics_bombcell.append(metric_name)
+
+    all_available = all([col in metrics.columns for col in required_metrics_bombcell])
+    missing_metrics = [r for r in required_metrics_bombcell if r not in list(metrics.columns)]
+
+    return all_available, missing_metrics
 
 
 if __name__ == "__main__":
@@ -221,61 +280,130 @@ if __name__ == "__main__":
             create_mock_results(recording_name)
             continue
 
-        # pass/fail default QC
+        n_units = int(len(analyzer.unit_ids))
+
+        # Default QC
+        logging.info("\nDEFAULT QC\n")
         qc_thresholds = curation_params["qc_thresholds"]
         logging.info(f"Curation thresholds: {qc_thresholds}")
         curation_notes += f"Curation thresholds: {qc_thresholds}\n"
 
-        qm = analyzer.get_extension("quality_metrics").get_data()
-        default_qc_labels = scur.threshold_metrics_label_units(
-            qm,
-            thresholds=qc_thresholds,
-            pass_label=True,
-            fail_label=False,
-            column_name="default_qc"
-        )
-        n_passing_qc = int(np.sum(default_qc_labels["default_qc"]))
-        logging.info(f"\tPassing default QC: {n_passing_qc} / {n_units}")
-        curation_notes += f"Passing default QC: {n_passing_qc}/{n_units}"
-        all_labels = [default_qc_labels]
+        metrics = analyzer.get_metrics_extension_data()
+
+        all_labels = []
+        if not all([col in metrics.columns for col in qc_thresholds.keys()]):
+            logging.info(
+                f"Not all QC columns are present in the quality metrics for {recording_name}. Skipping QC labeling"
+            )
+            curation_notes += (
+                f"Not all QC columns are present in the quality metrics for {recording_name}. Skipping QC labeling\n"
+            )
+            default_qc_labels = None
+        else:
+            default_qc_labels = scur.threshold_metrics_label_units(
+                metrics,
+                thresholds=qc_thresholds,
+                pass_label=True,
+                fail_label=False,
+                column_name="default_qc"
+            )
+            n_passing_qc = int(np.sum(default_qc_labels["default_qc"]))
+            logging.info(f"\tPassing default QC: {n_passing_qc} / {n_units}")
+            curation_notes += f"Passing default QC: {n_passing_qc}/{n_units}"
+            all_labels.append(default_qc_labels)
 
         if tm_ext is None:
             create_mock_results(recording_name, include_qc=False, include_classifier=True)
             logging.info(f"No template metrics found for {recording_name}. Skipping unit classification")
             continue
 
-        noise_neural_classifier = curation_params.get(
+        # Unitrefine
+        logging.info("\nUNITREFINE\n")
+        unitrefine_params = curation_params["unitrefine"]
+        noise_neural_classifier = unitrefine_params.get(
             "noise_neural_classifier",
             "SpikeInterface/UnitRefine_noise_neural_classifier"
         )
-        sua_mua_classifier = curation_params.get(
+        sua_mua_classifier = unitrefine_params.get(
             "sua_mua_classifier",
             "SpikeInterface/UnitRefine_sua_mua_classifier"
         )
-        logging.info(f"Applying UnitRefine with: {noise_neural_classifier} -- {sua_mua_classifier}")
 
-        unitrefine_labels = scur.unitrefine_label_units(
-            analyzer,
-            noise_neural_classifier=noise_neural_classifier,
-            sua_mua_classifier=sua_mua_classifier
-        )
+        # Check requirements for UnitRefine
+        if noise_neural_classifier is None and sua_mua_classifier is None:
+            logging.info("No UnitRefine classifiers provided. Skipping UnitRefine labeling")
+            curation_notes += "No UnitRefine classifiers provided. Skipping UnitRefine labeling\n"
+            apply_unitrefine = False
+        else:
+            # Check required metrics
+            apply_unitrefine = True
+            metrics = analyzer.get_metrics_extension_data()
 
-        n_unitrefine_sua = int(np.sum(unitrefine_labels["unitrefine_label"] == "sua"))
-        n_unitrefine_mua = int(np.sum(unitrefine_labels["unitrefine_label"] == "mua"))
-        n_unitrefine_noise = int(np.sum(unitrefine_labels["unitrefine_label"] == "noise"))
+            unitrefine_classifiers = [(noise_neural_classifier, sua_mua_classifier)]
+            unitrefine_classifiers.append(
+                ("SpikeInterface/UnitRefine_noise_neural_classifier_lightweight", "SpikeInterface/UnitRefine_sua_mua_classifier_lightweight")
+            )
+            apply_unitrefine = False
+            for models in unitrefine_classifiers:
+                noise_neural_candidate, sua_mua_candidate = models
+                ur_requirements_ok, ur_missing_metrics = check_unitrefine_metrics(
+                    noise_neural_candidate, sua_mua_candidate, metrics
+                )
+                if ur_requirements_ok:
+                    apply_unitrefine = True
+                    noise_neural_classifier = noise_neural_candidate
+                    sua_mua_classifier = sua_mua_candidate
+                    break
+                else:
+                    logging.info(
+                        f"Not all required metrics are present for {noise_neural_classifier}/{sua_mua_classifier}."
+                    )
+                    curation_notes += (
+                        f"Not all required metrics are present for {noise_neural_classifier}/{sua_mua_classifier}.\n"
+                    )
 
-        logging.info(f"\tUnitRefine Noise: {n_unitrefine_noise} / {n_units}")
-        logging.info(f"\tUnitRefine SUA: {n_unitrefine_sua} / {n_units}")
-        logging.info(f"\tUnitRefine MUA: {n_unitrefine_mua} / {n_units}")
+        if apply_unitrefine:
+            logging.info(f"Applying UnitRefine with: {noise_neural_classifier} -- {sua_mua_classifier}")
+            curation_params["unitrefine"]["noise_neural_classifier"] = noise_neural_classifier
+            curation_params["unitrefine"]["sua_mua_classifier"] = sua_mua_classifier
 
-        curation_notes += f"UnitRefine Noise: {n_unitrefine_noise} / {n_units}\n"
-        curation_notes += f"UnitRefine SUA: {n_unitrefine_sua} / {n_units}\n"
-        curation_notes += f"UnitRefine MUA: {n_unitrefine_mua} / {n_units}\n"
-        all_labels.append(unitrefine_labels)
+            unitrefine_labels = scur.unitrefine_label_units(
+                metrics=metrics,
+                noise_neural_classifier=noise_neural_classifier,
+                sua_mua_classifier=sua_mua_classifier
+            )
+
+            n_unitrefine_sua = int(np.sum(unitrefine_labels["unitrefine_label"] == "sua"))
+            n_unitrefine_mua = int(np.sum(unitrefine_labels["unitrefine_label"] == "mua"))
+            n_unitrefine_noise = int(np.sum(unitrefine_labels["unitrefine_label"] == "noise"))
+
+            logging.info(f"\tUnitRefine Noise: {n_unitrefine_noise} / {n_units}")
+            logging.info(f"\tUnitRefine SUA: {n_unitrefine_sua} / {n_units}")
+            logging.info(f"\tUnitRefine MUA: {n_unitrefine_mua} / {n_units}")
+
+            curation_notes += f"UnitRefine Noise: {n_unitrefine_noise} / {n_units}\n"
+            curation_notes += f"UnitRefine SUA: {n_unitrefine_sua} / {n_units}\n"
+            curation_notes += f"UnitRefine MUA: {n_unitrefine_mua} / {n_units}\n"
+            all_labels.append(unitrefine_labels)
+        else:
+            unitrefine_labels = None
 
         # Bombcell
+        logging.info("\nBOMBCELL\n")
         bombcell_params = curation_params.get("bombcell")
-        try:
+        bc_requirements_ok, bc_missing_metrics = check_bombcell_params(bombcell_params, metrics)
+
+        if not bc_requirements_ok and len(bc_missing_metrics) < MAX_MISSING_BOMBCELL_METRICS:
+            # In this case we drop the missing metrics
+            logging.info(f"Dropping {bc_missing_metrics} from Bombcell params")
+            for category, metric_dict in deepcopy(bombcell_params).items():
+                for metric_name in bc_missing_metrics:
+                    if metric_name in metric_dict:
+                        bombcell_params[category].pop(metric_name)
+            bc_requirements_ok = True
+            curation_params["bombcell"] = bombcell_params
+
+        if bc_requirements_ok:
             bombcell_labels = scur.bombcell_label_units(analyzer, thresholds=bombcell_params)
 
             n_bombcell_sua = int(np.sum(bombcell_labels["bombcell_label"] == "good"))
@@ -293,9 +421,11 @@ if __name__ == "__main__":
             curation_notes += f"Bombcell MUA: {n_bombcell_mua} / {n_units}\n"
             curation_notes += f"Bombcell NON-SOMA: {n_bombcell_non_somatic} / {n_units}\n"
             all_labels.append(bombcell_labels)
-        except Exception as e:
+        else:
+            logging.info(
+                f"Skipping Bombcell due to missing metrics: {bc_missing_metrics}"
+            )
             bombcell_labels = None
-            logging.info(f"Failed to apply bombcell labeling. Error:\n{e}")
 
         all_labels_df = pd.concat(all_labels, axis=1)
         all_labels_df.to_csv(results_folder / f"unit_labels_{recording_name}.csv", index=False)
@@ -307,40 +437,59 @@ if __name__ == "__main__":
                 "Noise strategy can be: 'bombcell' / 'unitrefine' / 'bombcell+unitrefine'"
             )
             if "bombcell" in noise_strategy and bombcell_labels is None:
-                raise ValueError(
-                    "To use bombcell you need the bombcell classification, but bombcell failed!"
+                warnings.warn(
+                    "Bombcell labels are not available. Noise strategy 'bombcell' will be ignored."
                 )
-            logging.info(f"Labeling noise units with '{noise_strategy}' strategy")
-            noise_mask = None
-            if noise_strategy == "bombcell":
-                noise_units = analyzer.unit_ids[all_labels_df["bombcell_label"] == "noise"]
-            elif noise_strategy == "unitrefine":
-                noise_units = analyzer.unit_ids[all_labels_df["unitrefine_label"] == "noise"]
-            elif noise_strategy == "bombcell+unitrefine":
-                noise_units = analyzer.unit_ids[
-                    (all_labels_df["unitrefine_label"] == "noise") & 
-                    (all_labels_df["bombcell_label"] == "noise")
-                ]
+                noise_strategy = noise_strategy.replace("bombcell", "").replace("+", "")
+            if "unitrefine" in noise_strategy and unitrefine_labels is None:
+                warnings.warn(
+                    "UnitRefine labels are not available. Noise strategy 'unitrefine' will be ignored."
+                )
+                noise_strategy = noise_strategy.replace("unitrefine", "").replace("+", "")
+
+            if noise_strategy == "":
+                logging.info("No noise strategy available. Skipping noise labeling")
+                noise_units = []
+            else:
+                logging.info(f"Labeling noise units with '{noise_strategy}' strategy")
+                noise_mask = None
+                if noise_strategy == "bombcell":
+                    noise_units = analyzer.unit_ids[all_labels_df["bombcell_label"] == "noise"]
+                elif noise_strategy == "unitrefine":
+                    noise_units = analyzer.unit_ids[all_labels_df["unitrefine_label"] == "noise"]
+                elif noise_strategy == "bombcell+unitrefine":
+                    noise_units = analyzer.unit_ids[
+                        (all_labels_df["unitrefine_label"] == "noise") & 
+                        (all_labels_df["bombcell_label"] == "noise")
+                    ]
         else:
             noise_units = []
 
         if len(noise_units) > 0:
-            neural_untis = [u for u in analyzer.unit_ids if u not in noise_units]
-            analyzer_neural = analyzer.select_units(unit_ids=neural_untis)
-            logging.info(f"Applying SLAy on neural units ({len(noise_units)}/{n_units})")
+            neural_units = [u for u in analyzer.unit_ids if u not in noise_units]
+            analyzer_neural = analyzer.select_units(unit_ids=neural_units)
         else:
             analyzer_neural = analyzer
+            neural_units = analyzer.unit_ids
 
         # Apply auto-merging
+        logging.info("\nSLAY\n")
         slay_params = curation_params.get("slay")
-        potential_merges = scur.compute_merge_unit_groups(
-            analyzer_neural,
-            preset="slay",
-            steps_params=slay_params
-        )
-        n_slay_merges = len(potential_merges)
-        logging.info(f"\tSLAy found {len(potential_merges)} potential merges")
-        curation_notes += f"SLAy found {len(potential_merges)} potential merges\n"
+        try:
+            logging.info(f"Applying SLAy on neural units ({len(neural_units)}/{n_units})")
+
+            potential_merges = scur.compute_merge_unit_groups(
+                analyzer_neural,
+                preset="slay",
+                steps_params=slay_params
+            )
+            n_slay_merges = len(potential_merges)
+            logging.info(f"\tSLAy found {len(potential_merges)} potential merges")
+            curation_notes += f"SLAy found {len(potential_merges)} potential merges\n"
+        except Exception as e:
+            logging.info(f"Error computing SLAy potential merges: {e}")
+            potential_merges = []
+            n_slay_merges = None
 
         with open(results_folder / f"unit_merges_{recording_name}.json", mode="w") as f:
             json.dump(check_json(potential_merges), f)
@@ -365,14 +514,23 @@ if __name__ == "__main__":
         curation_params["recording_name"] = recording_name
 
         curation_outputs = dict(
-            total_units=n_units, 
-            passing_qc=n_passing_qc,
-            failing_qc=n_units - n_passing_qc,
-            unitrefine_noise=n_unitrefine_noise,
-            unitrefine_sua=n_unitrefine_sua,
-            unitrefine_mua=n_unitrefine_mua,
-            slay_merges=n_slay_merges
+            total_units=n_units
         )
+        if default_qc_labels is not None:
+            curation_outputs.update(
+                dict(
+                    passing_qc=n_passing_qc,
+                    failing_qc=n_units - n_passing_qc,
+                )
+            )
+        if unitrefine_labels is not None:
+            curation_outputs.update(
+                dict(
+                    unitrefine_noise=n_unitrefine_noise,
+                    unitrefine_sua=n_unitrefine_sua,
+                    unitrefine_mua=n_unitrefine_mua,
+                )
+            )
 
         if bombcell_labels is not None:
             curation_outputs.update(
@@ -381,6 +539,13 @@ if __name__ == "__main__":
                     bombcell_sua=n_bombcell_sua,
                     bombcell_mua=n_bombcell_mua,
                     bombcell_non_somatic=n_bombcell_non_somatic,
+                )
+            )
+
+        if n_slay_merges is not None:
+            curation_outputs.update(
+                dict(
+                    slay_merges=n_slay_merges,
                 )
             )
 
