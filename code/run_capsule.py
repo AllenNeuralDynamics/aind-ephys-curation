@@ -47,6 +47,7 @@ DEFAULT_CURATION_DICT = {
     "merges": [],
     "splits": [],
 }
+MAX_MISSING_BOMBCELL_METRICS = 2
 
 try:
     from aind_log_utils import log
@@ -116,14 +117,16 @@ def check_unitrefine_metrics(noise_neural_classifier, sua_mua_classifier, metric
     bool
         True if all required metrics are present, False otherwise.
     """
-    required_metrics_noise_neural = scur.get_required_metrics_from_model(repo_id=noise_neural_classifier)
+    required_metrics_noise_neural = scur.get_required_metrics_from_model(repo_id=noise_neural_classifier, trust_model=True)
     if sua_mua_classifier is not None:
-        required_metrics_sua_mua = scur.get_required_metrics_from_model(repo_id=sua_mua_classifier)
+        required_metrics_sua_mua = scur.get_required_metrics_from_model(repo_id=sua_mua_classifier, trust_model=True)
     else:
         required_metrics_sua_mua = []
     required_metrics = list(set(required_metrics_noise_neural + required_metrics_sua_mua))
-
-    return all([col in metrics.columns for col in required_metrics])
+   
+    all_available = all([col in metrics.columns for col in required_metrics])
+    missing_metrics = [r for r in required_metrics if r not in list(metrics.columns)]
+    return all_available, missing_metrics
 
 
 def check_bombcell_params(bombcell_params, metrics):
@@ -148,12 +151,11 @@ def check_bombcell_params(bombcell_params, metrics):
     for category, metric_dict in bombcell_params.items():
         for metric_name in metric_dict:
             required_metrics_bombcell.append(metric_name)
-    
-    if not all([col in metrics.columns for col in required_metrics_bombcell]):
-        logging.info("Not all required metrics for Bombcell are present. Skipping Bombcell labeling.")
-        return False
 
-    return True
+    all_available = all([col in metrics.columns for col in required_metrics_bombcell])
+    missing_metrics = [r for r in required_metrics_bombcell if r not in list(metrics.columns)]
+
+    return all_available, missing_metrics
 
 
 if __name__ == "__main__":
@@ -280,7 +282,8 @@ if __name__ == "__main__":
 
         n_units = int(len(analyzer.unit_ids))
 
-        # pass/fail default QC
+        # Default QC
+        logging.info("\nDEFAULT QC\n")
         qc_thresholds = curation_params["qc_thresholds"]
         logging.info(f"Curation thresholds: {qc_thresholds}")
         curation_notes += f"Curation thresholds: {qc_thresholds}\n"
@@ -314,11 +317,14 @@ if __name__ == "__main__":
             logging.info(f"No template metrics found for {recording_name}. Skipping unit classification")
             continue
 
-        noise_neural_classifier = curation_params.get(
+        # Unitrefine
+        logging.info("\nUNITREFINE\n")
+        unitrefine_params = curation_params["unitrefine"]
+        noise_neural_classifier = unitrefine_params.get(
             "noise_neural_classifier",
             "SpikeInterface/UnitRefine_noise_neural_classifier"
         )
-        sua_mua_classifier = curation_params.get(
+        sua_mua_classifier = unitrefine_params.get(
             "sua_mua_classifier",
             "SpikeInterface/UnitRefine_sua_mua_classifier"
         )
@@ -332,26 +338,35 @@ if __name__ == "__main__":
             # Check required metrics
             apply_unitrefine = True
             metrics = analyzer.get_metrics_extension_data()
-            if not check_unitrefine_metrics(noise_neural_classifier, sua_mua_classifier, metrics):
-                logging.info(
-                    f"Not all required metrics are present for {noise_neural_classifier} and {sua_mua_classifier}. Trying with lightweight models."
+
+            unitrefine_classifiers = [(noise_neural_classifier, sua_mua_classifier)]
+            unitrefine_classifiers.append(
+                ("SpikeInterface/UnitRefine_noise_neural_classifier_lightweight", "SpikeInterface/UnitRefine_sua_mua_classifier_lightweight")
+            )
+            apply_unitrefine = False
+            for models in unitrefine_classifiers:
+                noise_neural_candidate, sua_mua_candidate = models
+                ur_requirements_ok, ur_missing_metrics = check_unitrefine_metrics(
+                    noise_neural_candidate, sua_mua_candidate, metrics
                 )
-                curation_notes += (
-                    f"Not all required metrics are present for {noise_neural_classifier} and {sua_mua_classifier}. Trying with lightweight models.\n"
-                )
-                noise_neural_classifier = "SpikeInterface/UnitRefine_noise_neural_classifier_lightweight"
-                sua_mua_classifier = "SpikeInterface/UnitRefine_sua_mua_classifier_lightweight"
-                if not check_unitrefine_metrics(noise_neural_classifier, sua_mua_classifier, metrics):
+                if ur_requirements_ok:
+                    apply_unitrefine = True
+                    noise_neural_classifier = noise_neural_candidate
+                    sua_mua_classifier = sua_mua_candidate
+                    break
+                else:
                     logging.info(
-                        f"Not all required metrics are present for {noise_neural_classifier} and {sua_mua_classifier}. Skipping UnitRefine labeling"
+                        f"Not all required metrics are present for {noise_neural_classifier}/{sua_mua_classifier}."
                     )
                     curation_notes += (
-                        f"Not all required metrics are present for {noise_neural_classifier} and {sua_mua_classifier}. Skipping UnitRefine labeling\n"
+                        f"Not all required metrics are present for {noise_neural_classifier}/{sua_mua_classifier}.\n"
                     )
-                    apply_unitrefine = False
 
         if apply_unitrefine:
             logging.info(f"Applying UnitRefine with: {noise_neural_classifier} -- {sua_mua_classifier}")
+            curation_params["unitrefine"]["noise_neural_classifier"] = noise_neural_classifier
+            curation_params["unitrefine"]["sua_mua_classifier"] = sua_mua_classifier
+
             unitrefine_labels = scur.unitrefine_label_units(
                 metrics=metrics,
                 noise_neural_classifier=noise_neural_classifier,
@@ -374,8 +389,21 @@ if __name__ == "__main__":
             unitrefine_labels = None
 
         # Bombcell
+        logging.info("\nBOMBCELL\n")
         bombcell_params = curation_params.get("bombcell")
-        if check_bombcell_params(bombcell_params, metrics):
+        bc_requirements_ok, bc_missing_metrics = check_bombcell_params(bombcell_params, metrics)
+
+        if not bc_requirements_ok and len(bc_missing_metrics) < MAX_MISSING_BOMBCELL_METRICS:
+            # In this case we drop the missing metrics
+            logging.info(f"Dropping {bc_missing_metrics} from Bombcell params")
+            for category, metric_dict in deepcopy(bombcell_params).items():
+                for metric_name in bc_missing_metrics:
+                    if metric_name in metric_dict:
+                        bombcell_params[category].pop(metric_name)
+            bc_requirements_ok = True
+            curation_params["bombcell"] = bombcell_params
+
+        if bc_requirements_ok:
             bombcell_labels = scur.bombcell_label_units(analyzer, thresholds=bombcell_params)
 
             n_bombcell_sua = int(np.sum(bombcell_labels["bombcell_label"] == "good"))
@@ -394,6 +422,9 @@ if __name__ == "__main__":
             curation_notes += f"Bombcell NON-SOMA: {n_bombcell_non_somatic} / {n_units}\n"
             all_labels.append(bombcell_labels)
         else:
+            logging.info(
+                f"Skipping Bombcell due to missing metrics: {bc_missing_metrics}"
+            )
             bombcell_labels = None
 
         all_labels_df = pd.concat(all_labels, axis=1)
@@ -437,13 +468,16 @@ if __name__ == "__main__":
         if len(noise_units) > 0:
             neural_units = [u for u in analyzer.unit_ids if u not in noise_units]
             analyzer_neural = analyzer.select_units(unit_ids=neural_units)
-            logging.info(f"Applying SLAy on neural units ({len(noise_units)}/{n_units})")
         else:
             analyzer_neural = analyzer
+            neural_units = analyzer.unit_ids
 
         # Apply auto-merging
+        logging.info("\nSLAY\n")
         slay_params = curation_params.get("slay")
         try:
+            logging.info(f"Applying SLAy on neural units ({len(neural_units)}/{n_units})")
+
             potential_merges = scur.compute_merge_unit_groups(
                 analyzer_neural,
                 preset="slay",
