@@ -48,13 +48,7 @@ DEFAULT_CURATION_DICT = {
     "splits": [],
 }
 
-try:
-    from aind_log_utils import log
-    HAVE_AIND_LOG_UTILS = True
-except ImportError:
-    HAVE_AIND_LOG_UTILS = False
-
-URL = "https://github.com/AllenNeuralDynamics/aind-ephys-curation"
+URL ="https://github.com/AllenNeuralDynamics/aind-ephys-curation"
 VERSION = "2.0"
 
 data_folder = Path("../data/")
@@ -99,7 +93,8 @@ def create_mock_results(recording_name, include_qc=True, include_classifier=True
         mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
 
 
-if __name__ == "__main__":
+def run() -> None:
+    """Entrypoint for the curation capsule."""
     ####### CURATION ########
     curation_notes = ""
     t_curation_start_all = time.perf_counter()
@@ -129,6 +124,8 @@ if __name__ == "__main__":
         with open("params.json", "r") as f:
             curation_params = json.load(f)
 
+    LOGGING = curation_params.pop("logging", None)
+
     data_process_prefix = "data_process_curation"
 
     job_kwargs = curation_params.pop("job_kwargs")
@@ -141,27 +138,40 @@ if __name__ == "__main__":
         if p.is_dir() and "ecephys" in p.name or "behavior" in p.name and "sorted" in p.name
     ]
 
-    # look for subject and data_description JSON files
-    subject_id = "undefined"
-    session_name = "undefined"
-    for f in data_folder.iterdir():
-        # the file name is {recording_name}_subject.json
-        if "subject.json" in f.name:
-            with open(f, "r") as file:
-                subject_id = json.load(file)["subject_id"]
-        # the file name is {recording_name}_data_description.json
-        if "data_description.json" in f.name:
-            with open(f, "r") as file:
-                session_name = json.load(file)["name"]
-
-    if HAVE_AIND_LOG_UTILS:
-        log.setup_logging(
-            "Curate Ecephys",
-            subject_id=subject_id,
-            asset_name=session_name,
-        )
+    # setup logging before any other logging call
+    if LOGGING is None:
+        logging.basicConfig(level="INFO", stream=sys.stdout, format="%(message)s")
     else:
-        logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
+        if LOGGING["package"] == "logging":
+            logging_cfg = LOGGING.get("logging_cfg", {})
+            logging.basicConfig(stream=sys.stdout, **logging_cfg)
+        elif LOGGING["package"] == "log-schema":
+            import log_schema
+
+            pipeline_name = LOGGING.get("pipeline_name", "AIND Ephys Pipeline")
+            acquisition_name = LOGGING.get("acquisition_name", None)
+
+            if acquisition_name is None:
+                data_description_json = list(data_folder.glob("**/data_description.json"))
+                if len(data_description_json) > 0:
+                    data_description_json = data_description_json[0]
+                    with open(data_description_json, "r") as f:
+                        data_description = json.load(f)
+                    acquisition_name = data_description["name"]
+
+            config = LOGGING.get("logging_cfg")
+            if config is not None and len(config) == 0:
+                config = None
+            log_schema.setup_logging(
+                config=config,
+                model={
+                    "pipeline_name": pipeline_name,
+                    "acquisition_name": acquisition_name,
+                    "process_name": "Curation"
+                }
+            )
+
+    logging.info("Begin processing...", extra={"event_type": "stage_start"})
 
     logging.info(f"Running curation with the following parameters:")
     logging.info(f"\tNOISE_STRATEGY: {NOISE_STRATEGY}")
@@ -406,3 +416,12 @@ if __name__ == "__main__":
     t_curation_end_all = time.perf_counter()
     elapsed_time_curation_all = np.round(t_curation_end_all - t_curation_start_all, 2)
     logging.info(f"CURATION time: {elapsed_time_curation_all}s")
+    logging.info("Pipeline stage completed", extra={"event_type": "stage_complete"})
+
+
+if __name__ == "__main__":
+    try:
+        run()
+    except Exception as e:
+        logging.exception("Pipeline stage failed", extra={"event_type": "stage_error"})
+        raise
