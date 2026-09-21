@@ -19,20 +19,18 @@ import pandas as pd
 # SPIKEINTERFACE
 import spikeinterface as si
 from spikeinterface.core.core_tools import check_json
-import spikeinterface.qualitymetrics as sqm
 import spikeinterface.curation as scur
 from spikeinterface.curation.curation_model import Curation
 
 from huggingface_hub.utils import logging as hf_logging
 hf_logging.set_verbosity_error()
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # AIND
 from aind_data_schema.core.processing import DataProcess, ProcessStage
 from aind_data_schema.components.identifiers import Code
 from aind_data_schema_models.process_names import ProcessName
 
-from huggingface_hub.utils import logging as hf_logging
-hf_logging.set_verbosity_error()
 
 DEFAULT_CURATION_DICT = {
     "format_version": "2",
@@ -368,7 +366,7 @@ if __name__ == "__main__":
             curation_params["unitrefine"]["sua_mua_classifier"] = sua_mua_classifier
 
             unitrefine_labels = scur.unitrefine_label_units(
-                metrics=metrics,
+                sorting_analyzer=analyzer,
                 noise_neural_classifier=noise_neural_classifier,
                 sua_mua_classifier=sua_mua_classifier
             )
