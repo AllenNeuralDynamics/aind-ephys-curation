@@ -124,6 +124,7 @@ def run() -> None:
         with open("params.json", "r") as f:
             curation_params = json.load(f)
 
+    # TODO: temporary - remove from params.json when logging is distributed by pipeline
     LOGGING = curation_params.pop("logging", None)
 
     data_process_prefix = "data_process_curation"
