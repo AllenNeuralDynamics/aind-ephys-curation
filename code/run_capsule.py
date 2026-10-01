@@ -22,9 +22,11 @@ from spikeinterface.core.core_tools import check_json
 import spikeinterface.curation as scur
 from spikeinterface.curation.curation_model import Curation
 
+# Silence HF warnings
 from huggingface_hub.utils import logging as hf_logging
 hf_logging.set_verbosity_error()
-logging.getLogger("httpx").setLevel(logging.WARNING)
+for _name in ("httpx", "httpx2"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
 
 # AIND
 from aind_data_schema.core.processing import DataProcess, ProcessStage
