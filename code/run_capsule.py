@@ -92,7 +92,6 @@ def create_mock_results(recording_name, include_qc=True, include_classifier=True
         mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
 
 
-<<<<<<< HEAD
 def check_unitrefine_metrics(noise_neural_classifier, sua_mua_classifier, metrics):
     """Check if the required metrics for the given classifiers are present in the metrics dataframe.
 
@@ -151,11 +150,8 @@ def check_bombcell_params(bombcell_params, metrics):
     return all_available, missing_metrics
 
 
-if __name__ == "__main__":
-=======
 def run() -> None:
     """Entrypoint for the curation capsule."""
->>>>>>> main
     ####### CURATION ########
     curation_notes = ""
     t_curation_start_all = time.perf_counter()
