@@ -150,11 +150,8 @@ def check_bombcell_params(bombcell_params, metrics):
     return all_available, missing_metrics
 
 
-if __name__ == "__main__":
-=======
 def run() -> None:
     """Entrypoint for the curation capsule."""
->>>>>>> main
     ####### CURATION ########
     curation_notes = ""
     t_curation_start_all = time.perf_counter()
