@@ -92,7 +92,6 @@ def create_mock_results(recording_name, include_qc=True, include_classifier=True
         mock_df.to_csv(results_folder / f"unit_classifier_{recording_name}.csv")
 
 
-<<<<<<< HEAD
 def check_unitrefine_metrics(noise_neural_classifier, sua_mua_classifier, metrics):
     """Check if the required metrics for the given classifiers are present in the metrics dataframe.
 
