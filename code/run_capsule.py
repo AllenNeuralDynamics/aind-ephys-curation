@@ -49,8 +49,8 @@ DEFAULT_CURATION_DICT = {
 }
 MAX_MISSING_BOMBCELL_METRICS = 2
 
-URL ="https://github.com/AllenNeuralDynamics/aind-ephys-curation"
-VERSION = "2.0"
+URL = os.getenv("CODE_REPO", "https://github.com/AllenNeuralDynamics/aind-ephys-curation")
+VERSION = os.getenv("CODE_VERSION", "2.0")
 
 data_folder = Path("../data/")
 scratch_folder = Path("../scratch")
