@@ -21,7 +21,7 @@ The `data/` folder must include the output of the [aind-ephys-postprocessing](ht
 
 ### Parameters
 
-The `code/run` script takes no arguments.
+Parameters are read from a `params.json` file that must be in the root folder of the capsule (next to `code/`, i.e. `../params.json` from `code/`), with the step parameters in the `curation` section.
 
 A list of curation thresholds used for curation can be found in the `code/params.json`:
 
