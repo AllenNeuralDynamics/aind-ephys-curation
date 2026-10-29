@@ -5,7 +5,6 @@ warnings.filterwarnings("ignore")
 # GENERAL IMPORTS
 import os
 import sys
-import argparse
 import json
 from pathlib import Path
 import time
@@ -56,25 +55,7 @@ data_folder = Path("../data/")
 scratch_folder = Path("../scratch")
 results_folder = Path("../results/")
 
-# Define argument parser
-parser = argparse.ArgumentParser(description="Curate ecephys data")
-
-noise_strategy_group = parser.add_mutually_exclusive_group()
-noise_strategy_help = (
-    "Noise strategy to label noise units (bombcell, unitrefine, or bombcell+unitrefine)"
-)
-noise_strategy_group.add_argument("static_noise_strategy", nargs="?", help=noise_strategy_help)
-noise_strategy_group.add_argument("--noise-strategy", default="unitrefine", help=noise_strategy_help)
-
-n_jobs_group = parser.add_mutually_exclusive_group()
-n_jobs_help = (
-    "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
-    "It can also be a float between 0 and 1 to use a fraction of available cores"
-)
-n_jobs_group.add_argument("static_n_jobs", nargs="?", default="-1", help=n_jobs_help)
-n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
-
-parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
+PARAMS_FILE = Path("../params.json")
 
 
 def create_mock_results(recording_name, include_qc=True, include_classifier=True):
@@ -158,33 +139,19 @@ def run() -> None:
     curation_notes = ""
     t_curation_start_all = time.perf_counter()
 
-    args = parser.parse_args()
+    if not PARAMS_FILE.is_file():
+        raise ValueError(f"Params file not found: {PARAMS_FILE}")
+    with open(PARAMS_FILE, "r") as f:
+        full_params = json.load(f)
+    curation_params = full_params["curation"]
+    LOGGING = full_params.get("logging", None)
 
-    N_JOBS = args.static_n_jobs or args.n_jobs
+    N_JOBS = str(curation_params.get("n_jobs", "-1"))
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
-    NOISE_STRATEGY = args.static_noise_strategy or args.noise_strategy
-    PARAMS = args.params
 
     # Use CO_CPUS/N_JOBS_EXT env variable if available
     N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("N_JOBS_EXT")
     N_JOBS = int(N_JOBS_EXT) if N_JOBS_EXT is not None else N_JOBS
-
-    if PARAMS is not None:
-        try:
-            # try to parse the JSON string first to avoid file name too long error
-            curation_params = json.loads(PARAMS)
-        except json.JSONDecodeError:
-            if Path(PARAMS).is_file():
-                with open(PARAMS, "r") as f:
-                    curation_params = json.load(f)
-            else:
-                raise ValueError(f"Invalid parameters: {PARAMS} is not a valid JSON string or file path")
-    else:
-        with open("params.json", "r") as f:
-            curation_params = json.load(f)
-
-    # TODO: temporary - remove from params.json when logging is distributed by pipeline
-    LOGGING = curation_params.pop("logging", None)
 
     data_process_prefix = "data_process_curation"
 
@@ -209,15 +176,7 @@ def run() -> None:
             import log_schema
 
             pipeline_name = LOGGING.get("pipeline_name", "AIND Ephys Pipeline")
-            acquisition_name = LOGGING.get("acquisition_name", None)
-
-            if acquisition_name is None:
-                data_description_json = list(data_folder.glob("**/*data_description.json"))
-                if len(data_description_json) > 0:
-                    data_description_json = data_description_json[0]
-                    with open(data_description_json, "r") as f:
-                        data_description = json.load(f)
-                    acquisition_name = data_description["name"]
+            acquisition_name = LOGGING.get("acquisition_name", "unknown")
 
             config = LOGGING.get("logging_cfg")
             if config is not None and len(config) == 0:
@@ -234,7 +193,6 @@ def run() -> None:
     logging.info("Begin processing...", extra={"event_type": "stage_start"})
 
     logging.info(f"Running curation with the following parameters:")
-    logging.info(f"\tNOISE_STRATEGY: {NOISE_STRATEGY}")
 
     pipeline_mode = True
     if len(ecephys_sorted_folders) > 0:
@@ -442,7 +400,7 @@ def run() -> None:
         all_labels_df.to_csv(results_folder / f"unit_labels_{recording_name}.csv", index=False)
 
         # Apply noise labels
-        noise_strategy = NOISE_STRATEGY or curation_params.get("noise_strategy")
+        noise_strategy = curation_params.get("noise_strategy", "unitrefine")
         if noise_strategy is not None:
             assert noise_strategy in ["bombcell", "unitrefine", "bombcell+unitrefine"], (
                 "Noise strategy can be: 'bombcell' / 'unitrefine' / 'bombcell+unitrefine'"
