@@ -23,21 +23,7 @@ The `data/` folder must include the output of the [aind-ephys-postprocessing](ht
 
 Parameters are read from a `params.json` file that must be in the root folder of the capsule (next to `code/`, i.e. `../params.json` from `code/`), with the step parameters in the `curation` section.
 
-A list of curation thresholds used for curation can be found in the `code/params.json`:
-
-```json
-{
-    "job_kwargs": {
-        "chunk_duration": "1s",
-        "progress_bar": false
-    },
-    "curation": {
-        "isi_violations_ratio_threshold": 0.5,
-        "presence_ratio_threshold": 0.8,
-        "amplitude_cutoff_threshold": 0.1
-    }
-}
-```
+A full list of parameters can be found in the  `aind-ephys-pipeline` repository, and are defined in this [schema](https://github.com/AllenNeuralDynamics/aind-ephys-pipeline/blob/1.5.0/pipeline/default_params_schema.json).
 
 ### Output
 
