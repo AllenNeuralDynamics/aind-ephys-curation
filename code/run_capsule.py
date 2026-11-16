@@ -6,6 +6,7 @@ warnings.filterwarnings("ignore")
 import os
 import sys
 import json
+import shutil
 from pathlib import Path
 import time
 import logging
@@ -56,6 +57,17 @@ scratch_folder = Path("../scratch")
 results_folder = Path("../results/")
 
 PARAMS_FILE = Path("../params.json")
+
+
+def peak_ram_gb():
+    """Peak resident memory of this process so far in GB (VmHWM, Linux), or None."""
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1]) / 1e6
+    except OSError:
+        pass
+    return None
 
 
 def create_mock_results(recording_name, include_qc=True, include_classifier=True):
@@ -227,7 +239,10 @@ def run() -> None:
         curation_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
 
         try:
-            analyzer = si.load(postprocessed_folder)
+            # Lazy: the spike vector and the extensions (waveforms, spike_amplitudes, ...)
+            # stay on disk and are read when used, instead of all in memory at load (hundreds
+            # of GB for billions of spikes)
+            analyzer = si.load(postprocessed_folder, lazy=True)
             logging.info(f"Curating recording: {recording_name}")
         except Exception as e:
             logging.info(f"Spike sorting failed on {recording_name}. Skipping curation")
@@ -434,11 +449,23 @@ def run() -> None:
         else:
             noise_units = []
 
+        neural_analyzer_folder = None
         if len(noise_units) > 0:
             neural_units = [u for u in analyzer.unit_ids if u not in noise_units]
-            analyzer_neural = analyzer.select_units(unit_ids=neural_units)
+            # The selected copy is written to scratch, not memory: with the lazy analyzer,
+            # its spike vector is written once and not read back. Its extensions (as
+            # selected from the analyzer's) hold arrays, which SLAy computes with
+            neural_analyzer_folder = scratch_folder / f"analyzer_neural_{recording_name}.zarr"
+            if neural_analyzer_folder.exists():
+                shutil.rmtree(neural_analyzer_folder)
+            analyzer_neural = analyzer.select_units(
+                unit_ids=neural_units, format="zarr", folder=neural_analyzer_folder
+            )
         else:
-            analyzer_neural = analyzer
+            # SLAy computes with the extensions' arrays, which the lazy analyzer leaves as
+            # zarr arrays: loaded again, not lazily, with extensions loaded when first used
+            # (SLAy reads templates, template similarity and correlograms)
+            analyzer_neural = si.load(postprocessed_folder, load_extensions=False)
             neural_units = analyzer.unit_ids
 
         # Apply auto-merging
@@ -459,6 +486,16 @@ def run() -> None:
             logging.info(f"Error computing SLAy potential merges: {e}")
             potential_merges = []
             n_slay_merges = None
+
+        # Peak so far: the neural units' selection and SLAy are the largest steps
+        peak_ram = peak_ram_gb()
+        if peak_ram is not None:
+            logging.info(f"\tPeak RAM so far: {peak_ram:.1f} GB")
+
+        # Free the selected copy (memory and scratch)
+        del analyzer_neural
+        if neural_analyzer_folder is not None:
+            shutil.rmtree(neural_analyzer_folder, ignore_errors=True)
 
         with open(results_folder / f"unit_merges_{recording_name}.json", mode="w") as f:
             json.dump(check_json(potential_merges), f)
