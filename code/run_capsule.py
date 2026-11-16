@@ -5,6 +5,7 @@ warnings.filterwarnings("ignore")
 # GENERAL IMPORTS
 import os
 import sys
+import argparse
 import json
 import shutil
 from pathlib import Path
@@ -22,11 +23,9 @@ from spikeinterface.core.core_tools import check_json
 import spikeinterface.curation as scur
 from spikeinterface.curation.curation_model import Curation
 
-# Silence HF warnings
 from huggingface_hub.utils import logging as hf_logging
 hf_logging.set_verbosity_error()
-for _name in ("httpx", "httpx2"):
-    logging.getLogger(_name).setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # AIND
 from aind_data_schema.core.processing import DataProcess, ProcessStage
@@ -49,14 +48,32 @@ DEFAULT_CURATION_DICT = {
 }
 MAX_MISSING_BOMBCELL_METRICS = 2
 
-URL = os.getenv("CODE_REPO", "https://github.com/AllenNeuralDynamics/aind-ephys-curation")
-VERSION = os.getenv("CODE_VERSION", "2.0")
+URL ="https://github.com/AllenNeuralDynamics/aind-ephys-curation"
+VERSION = "2.0"
 
 data_folder = Path("../data/")
 scratch_folder = Path("../scratch")
 results_folder = Path("../results/")
 
-PARAMS_FILE = Path("../params.json")
+# Define argument parser
+parser = argparse.ArgumentParser(description="Curate ecephys data")
+
+noise_strategy_group = parser.add_mutually_exclusive_group()
+noise_strategy_help = (
+    "Noise strategy to label noise units (bombcell, unitrefine, or bombcell+unitrefine)"
+)
+noise_strategy_group.add_argument("static_noise_strategy", nargs="?", help=noise_strategy_help)
+noise_strategy_group.add_argument("--noise-strategy", default="unitrefine", help=noise_strategy_help)
+
+n_jobs_group = parser.add_mutually_exclusive_group()
+n_jobs_help = (
+    "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
+    "It can also be a float between 0 and 1 to use a fraction of available cores"
+)
+n_jobs_group.add_argument("static_n_jobs", nargs="?", default="-1", help=n_jobs_help)
+n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
+
+parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
 
 
 def peak_ram_gb():
@@ -110,7 +127,7 @@ def check_unitrefine_metrics(noise_neural_classifier, sua_mua_classifier, metric
     else:
         required_metrics_sua_mua = []
     required_metrics = list(set(required_metrics_noise_neural + required_metrics_sua_mua))
-   
+
     all_available = all([col in metrics.columns for col in required_metrics])
     missing_metrics = [r for r in required_metrics if r not in list(metrics.columns)]
     return all_available, missing_metrics
@@ -151,19 +168,33 @@ def run() -> None:
     curation_notes = ""
     t_curation_start_all = time.perf_counter()
 
-    if not PARAMS_FILE.is_file():
-        raise ValueError(f"Params file not found: {PARAMS_FILE}")
-    with open(PARAMS_FILE, "r") as f:
-        full_params = json.load(f)
-    curation_params = full_params["curation"]
-    LOGGING = full_params.get("logging", None)
+    args = parser.parse_args()
 
-    N_JOBS = str(curation_params.get("n_jobs", "-1"))
+    N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
+    NOISE_STRATEGY = args.static_noise_strategy or args.noise_strategy
+    PARAMS = args.params
 
     # Use CO_CPUS/N_JOBS_EXT env variable if available
     N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("N_JOBS_EXT")
     N_JOBS = int(N_JOBS_EXT) if N_JOBS_EXT is not None else N_JOBS
+
+    if PARAMS is not None:
+        try:
+            # try to parse the JSON string first to avoid file name too long error
+            curation_params = json.loads(PARAMS)
+        except json.JSONDecodeError:
+            if Path(PARAMS).is_file():
+                with open(PARAMS, "r") as f:
+                    curation_params = json.load(f)
+            else:
+                raise ValueError(f"Invalid parameters: {PARAMS} is not a valid JSON string or file path")
+    else:
+        with open("params.json", "r") as f:
+            curation_params = json.load(f)
+
+    # TODO: temporary - remove from params.json when logging is distributed by pipeline
+    LOGGING = curation_params.pop("logging", None)
 
     data_process_prefix = "data_process_curation"
 
@@ -188,7 +219,15 @@ def run() -> None:
             import log_schema
 
             pipeline_name = LOGGING.get("pipeline_name", "AIND Ephys Pipeline")
-            acquisition_name = LOGGING.get("acquisition_name", "unknown")
+            acquisition_name = LOGGING.get("acquisition_name", None)
+
+            if acquisition_name is None:
+                data_description_json = list(data_folder.glob("**/*data_description.json"))
+                if len(data_description_json) > 0:
+                    data_description_json = data_description_json[0]
+                    with open(data_description_json, "r") as f:
+                        data_description = json.load(f)
+                    acquisition_name = data_description["name"]
 
             config = LOGGING.get("logging_cfg")
             if config is not None and len(config) == 0:
@@ -205,6 +244,7 @@ def run() -> None:
     logging.info("Begin processing...", extra={"event_type": "stage_start"})
 
     logging.info(f"Running curation with the following parameters:")
+    logging.info(f"\tNOISE_STRATEGY: {NOISE_STRATEGY}")
 
     pipeline_mode = True
     if len(ecephys_sorted_folders) > 0:
@@ -415,7 +455,7 @@ def run() -> None:
         all_labels_df.to_csv(results_folder / f"unit_labels_{recording_name}.csv", index=False)
 
         # Apply noise labels
-        noise_strategy = curation_params.get("noise_strategy", "unitrefine")
+        noise_strategy = NOISE_STRATEGY or curation_params.get("noise_strategy")
         if noise_strategy is not None:
             assert noise_strategy in ["bombcell", "unitrefine", "bombcell+unitrefine"], (
                 "Noise strategy can be: 'bombcell' / 'unitrefine' / 'bombcell+unitrefine'"
@@ -443,7 +483,7 @@ def run() -> None:
                     noise_units = analyzer.unit_ids[all_labels_df["unitrefine_label"] == "noise"]
                 elif noise_strategy == "bombcell+unitrefine":
                     noise_units = analyzer.unit_ids[
-                        (all_labels_df["unitrefine_label"] == "noise") & 
+                        (all_labels_df["unitrefine_label"] == "noise") &
                         (all_labels_df["bombcell_label"] == "noise")
                     ]
         else:
@@ -512,7 +552,7 @@ def run() -> None:
         curation_model = Curation(**curation_dict)
         with open(results_folder / f"curation_{recording_name}.json", "w") as f:
             f.write(curation_model.model_dump_json(indent=4))
-        
+
         t_curation_end = time.perf_counter()
         elapsed_time_curation = np.round(t_curation_end - t_curation_start, 2)
 
